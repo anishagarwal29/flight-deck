@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Flight Deck">
+<meta name="theme-color" content="#e9e2d3">
+<title>Flight Deck</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="-12 -12 24 24" aria-hidden="true"><path d="M0,-10 L1.6,-3 L9,2 L9,4 L1.6,1.5 L1.2,7 L3.5,9 L3.5,10.5 L0,9.5 L-3.5,10.5 L-3.5,9 L-1.2,7 L-1.6,1.5 L-9,4 L-9,2 L-1.6,-3 Z" transform="rotate(45)"/></svg>
+      <h1>Flight <em>Deck</em></h1>
+    </div>
+    <div class="sync"><i></i><span id="syncTxt">Saved on this phone</span></div>
+    <div class="clocks">
+      <div class="clock"><small>SINGAPORE</small><b id="clkS">--:--</b></div>
+      <div class="clock"><small>INDIA</small><b id="clkI">--:--</b></div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- PASSES -->
+    <section class="view" id="v-passes" aria-label="Boarding passes">
+      <div id="passes"></div>
+      <div class="toolbar"><button class="btn primary" id="editFlights">Edit flights</button></div>
+      <p class="note">Tap a pass to edit it. Add your seat and the Flight tab works out which window is yours.</p>
+    </section>
+
+    <!-- FLIGHT -->
+    <section class="view" id="v-flight" aria-label="Live flight">
+      <div class="card">
+        <div class="gps-row">
+          <span class="gps-dot" id="gpsDot"></span>
+          <p><b id="gpsTitle">GPS is off</b><span id="gpsSub"></span></p>
+          <button class="btn red" id="gpsBtn">Start GPS</button>
+        </div>
+        <label class="switch"><input type="checkbox" id="wake"> Keep the screen on during the flight</label>
+      </div>
+
+      <div class="legs" id="legChips"></div>
+      <div class="mapcard">
+        <span class="mode-tag" id="modeTag">PREVIEW</span>
+        <svg id="mapSvg" viewBox="0 0 400 430" role="img" aria-label="Map of the route from Singapore to Kolkata to Patna"></svg>
+      </div>
+
+      <div class="card">
+        <div class="over"><small id="overLbl">NOW OVER</small><b id="overTxt">…</b></div>
+        <div>
+          <div class="progress"><div id="progBar" style="width:0%"></div></div>
+          <div class="prog-ends"><span id="progFrom">SIN</span><span id="progPct">0%</span><span id="progTo">CCU</span></div>
+        </div>
+        <div class="stats">
+          <div class="stat"><small>ALTITUDE</small><b id="sAlt">—</b></div>
+          <div class="stat"><small>SPEED</small><b id="sSpd">—</b></div>
+          <div class="stat"><small>HEADING</small><b id="sHdg">—</b></div>
+          <div class="stat"><small>TO GO</small><b id="sDist">—</b></div>
+          <div class="stat"><small>TIME LEFT</small><b id="sLeft">—</b></div>
+          <div class="stat"><small id="sLandsLbl">LANDS</small><b id="sLands">--:--</b></div>
+        </div>
+        <div class="slider" id="sliderBox">
+          <label for="prev"><span>Preview the flight</span><span id="prevVal">38%</span></label>
+          <input type="range" id="prev" min="0" max="100" value="38">
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3>OUT YOUR WINDOW</h3></div>
+        <div class="window-sides" id="windowSides"></div>
+        <div class="ahead" id="ahead"></div>
+        <p class="note" id="seatHint"></p>
+      </div>
+
+      <div class="card" id="logCard" style="display:none">
+        <div class="card-h"><h3 id="logTitle">YOUR RECORDED FLIGHT</h3></div>
+        <div class="stats" id="logStats" style="border-top:0;padding-top:0"></div>
+        <p class="note">Your real path is the solid red line on the map.</p>
+        <div class="toolbar"><button class="btn ghost sm" id="clearLog">Delete recording</button></div>
+      </div>
+
+      <div class="toolbar"><button class="btn" id="editFlights2">Edit flights</button></div>
+    </section>
+
+    <!-- CHECKLIST -->
+    <section class="view" id="v-check" aria-label="Packing checklist">
+      <div class="ck-head">
+        <div><h2>Checklist</h2><span class="count" id="ckCount"></span></div>
+        <button class="edit-btn" id="ckEditBtn">Edit</button>
+      </div>
+      <div class="progress"><div id="ckBar" style="width:0%"></div></div>
+      <div id="cleared"></div>
+      <div id="ckSections" style="display:flex;flex-direction:column;gap:12px"></div>
+    </section>
+  </main>
+
+  <nav class="tabs" aria-label="Sections">
+    <button data-tab="passes"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6z"/><path d="M15 5v14" stroke-dasharray="2 2"/></svg>Passes</button>
+    <button data-tab="flight"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg>Flight</button>
+    <button data-tab="checklist"><svg viewBox="0 0 24 24"><circle cx="6" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><path d="M11 7h9M11 17h9"/></svg>Checklist</button>
+  </nav>
+</div>
+
+<div class="scrim" id="scrim"><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Edit flights"></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
