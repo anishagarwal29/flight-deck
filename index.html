@@ -33,7 +33,7 @@
     <section class="view" id="v-passes" aria-label="Boarding passes">
       <div id="passes"></div>
       <div class="toolbar"><button class="btn primary" id="editFlights">Edit flights</button></div>
-      <p class="note">Tap a pass to edit it. Add your seat and the Flight tab works out which window is yours.</p>
+      <p class="note">Tap a pass to flip it and see your seat. Drag the stub right to tear it off when you board.</p>
     </section>
 
     <!-- FLIGHT -->
@@ -44,7 +44,6 @@
           <p><b id="gpsTitle">GPS is off</b><span id="gpsSub"></span></p>
           <button class="btn red" id="gpsBtn">Start GPS</button>
         </div>
-        <label class="switch"><input type="checkbox" id="wake"> Keep the screen on during the flight</label>
       </div>
 
       <div class="legs" id="legChips"></div>
@@ -75,16 +74,10 @@
 
       <div class="card">
         <div class="card-h"><h3>OUT YOUR WINDOW</h3></div>
+        <div class="sunrow"><div class="porthole day" id="porthole" aria-hidden="true"><span class="sky"></span><span class="cloud c1"></span><span class="cloud c2"></span><span class="stars"></span></div><p id="sunLine"></p></div>
         <div class="window-sides" id="windowSides"></div>
         <div class="ahead" id="ahead"></div>
         <p class="note" id="seatHint"></p>
-      </div>
-
-      <div class="card" id="logCard" style="display:none">
-        <div class="card-h"><h3 id="logTitle">YOUR RECORDED FLIGHT</h3></div>
-        <div class="stats" id="logStats" style="border-top:0;padding-top:0"></div>
-        <p class="note">Your real path is the solid red line on the map.</p>
-        <div class="toolbar"><button class="btn ghost sm" id="clearLog">Delete recording</button></div>
       </div>
 
       <div class="toolbar"><button class="btn" id="editFlights2">Edit flights</button></div>

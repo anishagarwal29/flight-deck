@@ -65,13 +65,47 @@ main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16
 
 /* Tickets */
 #passes { display: flex; flex-direction: column; gap: 12px; }
-.ticket { display: grid; grid-template-columns: 1fr 104px; background: var(--ticket); border-radius: 10px; box-shadow: var(--shadow); width: 100%; text-align: left; border: 0; padding: 0; position: relative; animation: riseIn .5s var(--ease) both; animation-delay: calc(var(--i, 0) * 90ms); }
+.ticket { position: relative; perspective: 1400px; animation: riseIn .5s var(--ease) both; animation-delay: calc(var(--i, 0) * 90ms); }
 @keyframes riseIn { from { opacity: 0; transform: translateY(18px) rotate(-1deg); } }
-.ticket .main { padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.ticket .stub { border-left: 2px dashed var(--rule); padding: 14px 10px 12px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 8px; }
+.flipper { position: relative; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.3, 1.3, .4, 1); }
+.ticket.flipped .flipper { transform: rotateY(180deg); }
+.face { -webkit-backface-visibility: hidden; backface-visibility: hidden; border-radius: 10px; }
+.front { display: grid; grid-template-columns: 1fr 104px; background: var(--ticket); box-shadow: var(--shadow); position: relative; }
+.back { position: absolute; inset: 0; transform: rotateY(180deg); background: var(--ticket); box-shadow: var(--shadow); padding: 14px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; cursor: pointer; }
+.ticket .main { padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; cursor: pointer; position: relative; }
+.ticket .stub { border-left: 2px dashed var(--rule); padding: 14px 10px 12px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 6px; background: var(--ticket); border-radius: 0 10px 10px 0; touch-action: pan-y; user-select: none; -webkit-user-select: none; transform-origin: 0% 100%; cursor: grab; }
 .ticket .stub::before, .ticket .stub::after { content: ""; position: absolute; left: -10px; width: 18px; height: 18px; border-radius: 50%; background: var(--paper); }
 .ticket .stub::before { top: -9px; box-shadow: inset 0 -2px 3px rgba(30, 35, 49, 0.08); }
 .ticket .stub::after { bottom: -9px; box-shadow: inset 0 2px 3px rgba(30, 35, 49, 0.08); }
+.stub.dragging { box-shadow: 6px 8px 18px -8px rgba(30, 35, 49, .45); cursor: grabbing; }
+.stub.fly { animation: flyOff .42s cubic-bezier(.4, 0, .8, .6) forwards; }
+@keyframes flyOff { to { transform: translate(180px, 90px) rotate(32deg); opacity: 0; } }
+.stub.nudge { animation: nudge .5s ease; }
+@keyframes nudge { 30% { transform: translateX(10px) rotate(1.5deg); } 60% { transform: translateX(3px); } }
+.tear-hint { font-size: 8.5px; letter-spacing: 0.12em; color: var(--muted); font-weight: 700; }
+.ticket.torn .front { background: transparent; box-shadow: none; }
+.ticket.torn .main { background: var(--ticket); border-radius: 10px 0 0 10px; box-shadow: var(--shadow); }
+.ticket.torn .main::after { content: ""; position: absolute; top: 0; bottom: 0; right: -6px; width: 7px;
+  background: linear-gradient(-135deg, var(--ticket) 4px, transparent 0) 0 4px, linear-gradient(-45deg, var(--ticket) 4px, transparent 0) 0 4px;
+  background-size: 7px 8px; background-repeat: repeat-y; }
+.ticket.torn .stub { visibility: hidden; }
+.boarded { position: absolute; right: 10px; bottom: 10px; font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: 0.1em; color: var(--red); border: 3px solid var(--red); border-radius: 6px; padding: 2px 10px; transform: rotate(-12deg); opacity: .9; pointer-events: none; mix-blend-mode: multiply; }
+.boarded.thunk { animation: bigThunkB .45s cubic-bezier(.2, 1.6, .4, 1) .3s both; }
+@keyframes bigThunkB { from { transform: rotate(-12deg) scale(2); opacity: 0; } }
+.tape { position: absolute; right: 8px; top: 50%; transform: translateY(-50%) rotate(-3deg); width: 88px; border: 0; background: rgba(255, 240, 180, .85); font-size: 12px; font-weight: 700; padding: 8px 4px; border-radius: 2px; box-shadow: 0 2px 6px -3px rgba(0,0,0,.4); color: var(--ink); }
+.fine { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
+.fine.tiny { font-size: 10px; letter-spacing: 0.06em; }
+.back-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: auto; }
+.seatmap { display: flex; align-items: stretch; gap: 6px; }
+.sm-win { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 8px; letter-spacing: 0.2em; color: var(--muted); font-weight: 700; text-align: center; border: 1px dashed var(--rule); border-radius: 6px; padding: 2px 1px; }
+.seatmap .sm-win:last-child { transform: none; }
+.sm-rows { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.sm-row { display: flex; align-items: center; gap: 8px; }
+.sm-n { width: 20px; font-family: var(--font-data); font-size: 10px; color: var(--muted); text-align: right; }
+.sm-g { display: flex; gap: 3px; flex: 1; justify-content: center; }
+.sm-g i { flex: 1; max-width: 20px; height: 14px; border-radius: 3px 3px 2px 2px; background: #ece4d2; display: grid; place-items: center; font-style: normal; font-family: var(--font-display); font-weight: 700; font-size: 11px; color: #fff; }
+.sm-g i.me { background: var(--red); animation: pulseSeat 1.2s ease-in-out 3; }
+@keyframes pulseSeat { 50% { transform: scale(1.25); } }
 .ticket.past { opacity: 0.62; }
 .tk-top { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; letter-spacing: 0.16em; font-weight: 700; color: var(--muted); }
 .tk-top .red { color: var(--red); }
@@ -81,7 +115,7 @@ main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16
 .route .end { text-align: right; }
 .route .path { display: flex; align-items: center; gap: 4px; color: var(--red); margin-top: -14px; }
 .route .path::before, .route .path::after { content: ""; flex: 1; border-top: 1.5px dashed var(--rule); }
-.route .path svg { width: 18px; height: 18px; fill: var(--red); transform: rotate(90deg); animation: fly 3s ease-in-out infinite; }
+.route .path svg { width: 18px; height: 18px; fill: var(--red); transform: rotate(90deg); animation: fly 3s ease-in-out 3; }
 @keyframes fly { 50% { transform: rotate(90deg) translateY(-5px); } }
 .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; }
 .fld small { display: block; font-size: 9.5px; letter-spacing: 0.14em; color: var(--muted); font-weight: 700; }
@@ -138,9 +172,9 @@ input[type=range] { width: 100%; accent-color: var(--red); }
 
 .gps-row { display: flex; align-items: center; gap: 10px; }
 .gps-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--rule); flex-shrink: 0; position: relative; }
-.gps-dot.searching { background: var(--late); animation: blink 1s ease-in-out infinite; }
+.gps-dot.searching { background: var(--late); animation: blink 1s ease-in-out 20; }
 .gps-dot.locked { background: var(--ok); }
-.gps-dot.locked::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--ok); animation: ring 1.8s ease-out infinite; }
+.gps-dot.locked::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--ok); animation: ring 1.8s ease-out 4; }
 .gps-dot.lost, .gps-dot.denied { background: var(--red); }
 @keyframes blink { 50% { opacity: .3; } }
 @keyframes ring { from { transform: scale(.5); opacity: .9; } to { transform: scale(1.8); opacity: 0; } }
@@ -229,3 +263,24 @@ nav.tabs button[aria-current="page"] svg { transform: translateY(-2px); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Porthole */
+.sunrow { display: flex; align-items: center; gap: 14px; }
+.sunrow p { margin: 0; font-size: 14px; line-height: 1.45; flex: 1; }
+.sunrow p b { color: var(--red); }
+.porthole { width: 74px; height: 96px; border-radius: 46% / 40%; position: relative; overflow: hidden; flex-shrink: 0;
+  box-shadow: 0 0 0 6px #ddd5c3, 0 0 0 8px #c9bfa9, inset 0 4px 10px rgba(0,0,0,.25); transition: background 1s; }
+.porthole .sky { position: absolute; inset: 0; transition: background 1s; }
+.porthole.day .sky { background: linear-gradient(#3f86d6, #a9d4f5); }
+.porthole.golden .sky { background: linear-gradient(#5b86c8 0%, #f2b76b 75%, #f6d39a 100%); }
+.porthole.dusk .sky { background: linear-gradient(#26306a 0%, #b04e78 60%, #f08a52 100%); }
+.porthole.night .sky { background: linear-gradient(#070b1f, #1a2350); }
+.porthole .cloud { position: absolute; height: 14px; border-radius: 10px; background: rgba(255,255,255,.85); filter: blur(1px); }
+.porthole .c1 { width: 46px; bottom: 18px; left: -6px; animation: drift 9s linear 2; }
+.porthole .c2 { width: 30px; bottom: 34px; right: -4px; opacity: .7; animation: drift 12s linear 2; }
+.porthole.night .cloud { background: rgba(120,130,170,.35); }
+.porthole.dusk .cloud { background: rgba(255,200,190,.6); }
+@keyframes drift { from { transform: translateX(30px); } to { transform: translateX(-30px); } }
+.porthole .stars { position: absolute; inset: 0; opacity: 0; transition: opacity 1s;
+  background-image: radial-gradient(1px 1px at 20% 20%, #fff, transparent), radial-gradient(1px 1px at 60% 35%, #fff, transparent), radial-gradient(1.5px 1.5px at 40% 60%, #fff, transparent), radial-gradient(1px 1px at 75% 15%, #fff, transparent), radial-gradient(1px 1px at 30% 80%, #fff, transparent); }
+.porthole.night .stars { opacity: 1; }

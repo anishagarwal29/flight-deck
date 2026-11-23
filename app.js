@@ -7,7 +7,7 @@
     CCU: { city: "KOLKATA", name: "Kolkata", lon: 88.4467, lat: 22.6547, zone: "IST" },
     PAT: { city: "PATNA", name: "Patna", lon: 85.0880, lat: 25.5913, zone: "IST" }
   };
-  const LS_KEY = "flightdeck.v1", LS_TRACKS = "flightdeck.tracks";
+  const LS_KEY = "flightdeck.v1", LS_GPS = "flightdeck.gpsOn";
   const PLANE_PATH = "M0,-10 L1.6,-3 L9,2 L9,4 L1.6,1.5 L1.2,7 L3.5,9 L3.5,10.5 L0,9.5 L-3.5,10.5 L-3.5,9 L-1.2,7 L-1.6,1.5 L-9,4 L-9,2 L-1.6,-3 Z";
   const CHECK_SVG = '<svg viewBox="0 0 12 12"><path d="M2 6.5 5 9.2 10 3"/></svg>';
   const uid = () => Math.random().toString(36).slice(2, 9);
@@ -45,7 +45,7 @@
     const out = { v: 2, updatedAt: +s.updatedAt || 0 };
     out.flights = d.flights.map(f => {
       const g = Array.isArray(s.flights) ? s.flights.find(x => x && x.id === f.id) : null;
-      return g ? { ...f, no: String(g.no || ""), dep: String(g.dep || ""), dur: Math.max(10, +g.dur || f.dur), seat: String(g.seat || ""), gate: String(g.gate || "") } : f;
+      return g ? { ...f, no: String(g.no || ""), dep: String(g.dep || ""), dur: Math.max(10, +g.dur || f.dur), seat: String(g.seat || ""), gate: String(g.gate || ""), torn: !!g.torn } : f;
     });
     out.checklist = Array.isArray(s.checklist) ? s.checklist.filter(c => c && c.id).map(c => ({ id: String(c.id), sec: String(c.sec || "OTHER"), label: String(c.label || ""), done: !!c.done })) : d.checklist;
     return out;
@@ -54,8 +54,7 @@
   // ================= state + saving =================
   let state = defaults();
   try { const raw = localStorage.getItem(LS_KEY); if (raw) state = sanitize(JSON.parse(raw)); } catch (e) {}
-  let tracks = {};
-  try { tracks = JSON.parse(localStorage.getItem(LS_TRACKS) || "{}") || {}; } catch (e) { tracks = {}; }
+  try { localStorage.removeItem("flightdeck.tracks"); } catch (e) {}
 
   let dbRef = null, writing = false, again = false, saveTimer = null, offlineReady = false, cloud = false;
   function setSync() {
@@ -69,7 +68,6 @@
     clearTimeout(saveTimer); saveTimer = setTimeout(flush, 1200);
     if (!opts || !opts.quiet) renderAll();
   }
-  function saveTracks() { try { localStorage.setItem(LS_TRACKS, JSON.stringify(tracks)); } catch (e) {} }
   async function flush(retried) {
     if (!dbRef) return;
     if (writing) { again = true; return; }
@@ -178,19 +176,30 @@
   }
 
   // ================= GPS =================
-  const gps = { on: false, watch: null, last: null, prev: null, status: "off", err: "", airborne: false, slowCount: 0, lastTrackSave: 0 };
-  let wakeLock = null, wantWake = false;
+  const gps = { on: false, watch: null, last: null, prev: null, status: "off", err: "", airborne: false, slowCount: 0 };
   function startGPS() {
     if (!("geolocation" in navigator)) { gps.status = "denied"; gps.err = "This browser has no location support."; renderGPS(); return; }
     gps.on = true; gps.status = "searching"; gps.err = "";
+    try { localStorage.setItem(LS_GPS, "1"); } catch (e) {}
     try {
       gps.watch = navigator.geolocation.watchPosition(onFix, onGpsErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 120000 });
     } catch (e) { gps.status = "denied"; gps.err = "Location is blocked here. Open your own hosted version in Safari."; }
     renderGPS(); renderFlight();
   }
+  function pauseGPS() {
+    if (gps.watch != null) { try { navigator.geolocation.clearWatch(gps.watch); } catch (e) {} }
+    gps.watch = null;
+  }
+  function resumeGPS() {
+    if (!gps.on || gps.watch != null || !("geolocation" in navigator)) return;
+    gps.status = gps.last ? "lost" : "searching";
+    try { gps.watch = navigator.geolocation.watchPosition(onFix, onGpsErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 120000 }); } catch (e) {}
+  }
   function stopGPS() {
     if (gps.watch != null) { try { navigator.geolocation.clearWatch(gps.watch); } catch (e) {} }
-    gps.on = false; gps.watch = null; gps.status = "off"; saveTracks(); renderGPS(); renderFlight();
+    gps.on = false; gps.watch = null; gps.status = "off";
+    try { localStorage.removeItem(LS_GPS); } catch (e) {}
+    renderGPS(); renderFlight();
   }
   function onGpsErr(e) {
     if (e && e.code === 1) { gps.status = "denied"; gps.err = "Location permission was refused. In Settings › Privacy › Location Services, allow Safari Websites, then try again."; stopGPS(); gps.status = "denied"; }
@@ -209,19 +218,9 @@
     gps.prev = prev; gps.last = fix; gps.status = "locked";
     // takeoff / landing detection
     const spd = fix.spd || 0;
-    if (!gps.airborne && spd > 60) { gps.airborne = true; gps.slowCount = 0; toast("Wheels up ✈  Recording your flight"); }
+    if (!gps.airborne && spd > 60) { gps.airborne = true; gps.slowCount = 0; toast("Wheels up ✈  Enjoy the flight"); }
     else if (gps.airborne && spd < 25) { if (++gps.slowCount >= 3) { gps.airborne = false; const near = nearestAirport(fix); toast(near ? "Touchdown in " + near.name : "Touchdown"); } }
     else gps.slowCount = 0;
-    // recording (only while moving fast, thinned)
-    if (spd > 20 || gps.airborne) {
-      const leg = pickLeg(fix).id;
-      const arr = tracks[leg] || (tracks[leg] = []);
-      const lastPt = arr[arr.length - 1];
-      if (!lastPt || (t - lastPt[0] > 8000 && dist({ lat: lastPt[1], lon: lastPt[2] }, fix) > 0.8)) {
-        arr.push([t, +fix.lat.toFixed(5), +fix.lon.toFixed(5), fix.alt == null ? null : Math.round(fix.alt), Math.round(spd * 10) / 10]);
-        if (Date.now() - gps.lastTrackSave > 20000) { gps.lastTrackSave = Date.now(); saveTracks(); }
-      }
-    }
     renderGPS(); renderFlight();
   }
   function nearestAirport(p) {
@@ -229,16 +228,9 @@
     for (const k in AIRPORTS) { const d = dist(AIRPORTS[k], p); if (d < bd) { bd = d; best = AIRPORTS[k]; } }
     return best;
   }
-  async function setWake(on) {
-    wantWake = on;
-    try {
-      if (on && "wakeLock" in navigator) { wakeLock = await navigator.wakeLock.request("screen"); }
-      else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
-    } catch (e) { if (on) { toast("Couldn't keep the screen on here"); $("wake").checked = false; wantWake = false; } }
-  }
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") { if (wantWake) setWake(true); pull(); renderAll(); }
-    else saveTracks();
+    if (document.visibilityState === "visible") { if (curTab === "flight") resumeGPS(); pull(); renderAll(); }
+    else pauseGPS();
   });
 
   // ================= leg + position resolution =================
@@ -302,6 +294,17 @@
     if ("FHJKL".includes(L)) return "right";
     return "aisle";
   }
+  function seatMap(seat) {
+    const m = /^\s*(\d{1,3})\s*([A-Za-z])\s*$/.exec(seat || "");
+    if (!m) return '<p class="fine">Add your seat (like 23A) in Edit flight and you\'ll see where you\'re sitting.</p>';
+    const row = +m[1], L = m[2].toUpperCase();
+    const groups = "ABCDEF".includes(L) ? [["A", "B", "C"], ["D", "E", "F"]] : [["A", "B", "C"], ["D", "E", "F", "G"], ["H", "J", "K"]];
+    let html = '<div class="seatmap"><div class="sm-win">WINDOW</div><div class="sm-rows">';
+    for (let r = Math.max(1, row - 2); r <= row + 2; r++) {
+      html += '<div class="sm-row"><span class="sm-n">' + r + "</span>" + groups.map(g => '<span class="sm-g">' + g.map(c => '<i class="' + (r === row && c === L ? "me" : "") + '">' + (r === row && c === L ? c : "") + "</i>").join("") + "</span>").join("") + "</div>";
+    }
+    return html + '</div><div class="sm-win">WINDOW</div></div>';
+  }
   const fld = (label, val) => '<div class="fld"><small>' + label + "</small><b>" + esc(val) + "</b></div>";
   const stampSeen = new Map();
   let passesAnimated = false;
@@ -313,24 +316,118 @@
       const A = AIRPORTS[f.from], B = AIRPORTS[f.to], t = legTimes(f), st = flightStatus(f, now);
       const date = t ? (() => { const d = zoned(t.dep, A.zone); return d.getUTCDate() + " " + MONS[d.getUTCMonth()]; })() : "TBC";
       const side = seatSide(f.seat);
-      const thunk = stampSeen.get(f.id) !== st.txt;
-      stampSeen.set(f.id, st.txt);
-      html += '<button class="ticket' + (st.past ? " past" : "") + '" data-id="' + f.id + '" style="--i:' + (i++) + (passesAnimated ? ";animation:none" : "") + '">' +
-        '<div class="main"><div class="tk-top"><span>BOARDING PASS</span><span class="red">LEG ' + (idx + 1) + " OF " + state.flights.length + "</span></div>" +
-        '<div class="route"><div><span class="code">' + f.from + '</span><span class="city">' + A.city + "</span></div>" +
-        '<div class="path"><svg viewBox="-12 -12 24 24" aria-hidden="true"><path d="' + PLANE_PATH + '"/></svg></div>' +
-        '<div class="end"><span class="code">' + f.to + '</span><span class="city">' + B.city + "</span></div></div>" +
-        '<div class="fields">' + fld("DATE", date) + fld("DEPARTS", t ? hhmm(t.dep, A.zone) : "--:--") + fld("LANDS", t ? hhmm(t.arr, B.zone) : "--:--") +
-        fld("FLIGHT", f.no ? f.no.toUpperCase() : "—") + fld("LENGTH", durWords(f.dur)) + fld("KM", fmtInt(legLen(f))) + "</div></div>" +
-        '<div class="stub">' + fld("GATE", f.gate ? f.gate.toUpperCase() : "—") + fld("SEAT", f.seat ? f.seat.toUpperCase() : "—") +
-        (side === "left" || side === "right" ? '<span class="side">WINDOW · ' + side.toUpperCase() + "</span>" : "") +
-        '<div class="stamp ' + st.cls + (thunk ? " thunk" : "") + '">' + st.txt + "</div>" + barcode(f.from + f.to + (f.no || "") + (f.dep || "")) + "</div></button>";
+      const key = f.id + (f.torn ? "t" : "") + st.txt;
+      const thunk = stampSeen.get(f.id) !== key;
+      stampSeen.set(f.id, key);
+      html += '<div class="ticket' + (st.past ? " past" : "") + (f.torn ? " torn" : "") + '" data-id="' + f.id + '" style="--i:' + (i++) + (passesAnimated ? ";animation:none" : "") + '">' +
+        '<div class="flipper">' +
+        '<div class="face front">' +
+          '<div class="main" tabindex="0" role="button" aria-label="Flip pass">' +
+            '<div class="tk-top"><span>BOARDING PASS</span><span class="red">LEG ' + (idx + 1) + " OF " + state.flights.length + "</span></div>" +
+            '<div class="route"><div><span class="code">' + f.from + '</span><span class="city">' + A.city + "</span></div>" +
+            '<div class="path"><svg viewBox="-12 -12 24 24" aria-hidden="true"><path d="' + PLANE_PATH + '"/></svg></div>' +
+            '<div class="end"><span class="code">' + f.to + '</span><span class="city">' + B.city + "</span></div></div>" +
+            '<div class="fields">' + fld("DATE", date) + fld("DEPARTS", t ? hhmm(t.dep, A.zone) : "--:--") + fld("LANDS", t ? hhmm(t.arr, B.zone) : "--:--") +
+            fld("FLIGHT", f.no ? f.no.toUpperCase() : "—") + fld("LENGTH", durWords(f.dur)) + fld("KM", fmtInt(legLen(f))) + "</div>" +
+            (f.torn ? '<div class="boarded' + (thunk ? " thunk" : "") + '">BOARDED</div>' : "") +
+          "</div>" +
+          '<div class="stub" title="Drag right to tear">' + fld("GATE", f.gate ? f.gate.toUpperCase() : "—") + fld("SEAT", f.seat ? f.seat.toUpperCase() : "—") +
+            (side === "left" || side === "right" ? '<span class="side">WINDOW · ' + side.toUpperCase() + "</span>" : "") +
+            '<div class="stamp ' + st.cls + (thunk && !f.torn ? " thunk" : "") + '">' + st.txt + "</div>" + barcode(f.from + f.to + (f.no || "") + (f.dep || "")) +
+            '<span class="tear-hint">PULL TO TEAR ›</span>' +
+          "</div>" +
+          (f.torn ? '<button class="tape" data-tape="' + f.id + '">Tape it back</button>' : "") +
+        "</div>" +
+        '<div class="face back" tabindex="0" role="button" aria-label="Flip pass back">' +
+          '<div class="tk-top"><span>SEAT MAP · TYPICAL LAYOUT</span><span class="red">' + f.from + " → " + f.to + "</span></div>" +
+          seatMap(f.seat) +
+          '<p class="fine">' + (side === "left" || side === "right" ? "Window on your " + side + ". " : "") + "Layouts differ between planes, so check when you board.</p>" +
+          '<div class="back-row"><button class="btn sm" data-edit="1">Edit flight</button><span class="fine tiny">Not valid for travel · Flight Deck Air</span></div>' +
+        "</div>" +
+        "</div></div>";
       if (idx === 0 && t1 && t2 && t2.dep > t1.arr) html += '<div class="layover"' + (passesAnimated ? ' style="animation:none"' : "") + ">LAYOVER · <b>" + durWords((t2.dep - t1.arr) / 60000) + "</b> IN KOLKATA</div>";
     });
     $("passes").innerHTML = html;
     passesAnimated = true;
   }
-  $("passes").addEventListener("click", e => { if (e.target.closest("button.ticket")) openFlights(); });
+
+  // ---- sounds (made in code, no files) ----
+  let actx = null;
+  function audio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume(); return actx; } catch (e) { return null; } }
+  function ripSound() {
+    const a = audio(); if (!a) return;
+    const dur = 0.34, n = Math.floor(a.sampleRate * dur), buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) { const t = i / n; const crack = Math.random() < 0.09 ? 1 : 0.22; d[i] = (Math.random() * 2 - 1) * crack * Math.pow(1 - t, 1.4) * Math.min(1, t * 25); }
+    const src = a.createBufferSource(); src.buffer = buf;
+    const bp = a.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 2600; bp.Q.value = 0.6;
+    const g = a.createGain(); g.gain.value = 0.7;
+    src.connect(bp); bp.connect(g); g.connect(a.destination); src.start();
+  }
+  function thunkSound() {
+    const a = audio(); if (!a) return;
+    const o = a.createOscillator(), g = a.createGain(), t = a.currentTime;
+    o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.12);
+    g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + 0.18);
+  }
+
+  // ---- tear the stub, flip the pass ----
+  let drag = null;
+  const passesEl = $("passes");
+  passesEl.addEventListener("pointerdown", e => {
+    const stub = e.target.closest(".stub"); if (!stub) return;
+    const tk = stub.closest(".ticket"); if (tk.classList.contains("flipped") || tk.classList.contains("torn")) return;
+    drag = { stub, tk, x: e.clientX, y: e.clientY, dx: 0, live: false, id: e.pointerId };
+    audio();
+  });
+  passesEl.addEventListener("pointermove", e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.live) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { drag = null; return; }
+      if (dx > 8) { drag.live = true; try { drag.stub.setPointerCapture(e.pointerId); } catch (err) {} drag.stub.classList.add("dragging"); }
+      else return;
+    }
+    drag.dx = Math.max(0, dx);
+    drag.stub.style.transform = "translateX(" + drag.dx + "px) rotate(" + (drag.dx * 0.12).toFixed(1) + "deg)";
+    e.preventDefault();
+  });
+  function endDrag(e) {
+    if (!drag || (e && e.pointerId !== drag.id)) return;
+    const d = drag; drag = null;
+    d.stub.classList.remove("dragging");
+    if (!d.live) return;
+    d.stub.dataset.dragged = "1";
+    if (d.dx > 64) tearStub(d.tk, d.stub);
+    else { d.stub.style.transition = "transform .35s cubic-bezier(.2,1.4,.4,1)"; d.stub.style.transform = ""; setTimeout(() => { d.stub.style.transition = ""; }, 400); }
+  }
+  passesEl.addEventListener("pointerup", endDrag);
+  passesEl.addEventListener("pointercancel", endDrag);
+  function tearStub(tk, stub) {
+    const f = state.flights.find(x => x.id === tk.dataset.id); if (!f) return;
+    ripSound();
+    stub.classList.add("fly");
+    setTimeout(() => { f.torn = true; commit({ quiet: true }); renderPasses(); setTimeout(thunkSound, 330); }, 380);
+  }
+  passesEl.addEventListener("click", e => {
+    if (e.target.closest("[data-edit]")) { openFlights(); return; }
+    const tape = e.target.closest("[data-tape]");
+    if (tape) { const f = state.flights.find(x => x.id === tape.dataset.tape); if (f) { f.torn = false; commit({ quiet: true }); renderPasses(); } return; }
+    const stub = e.target.closest(".stub");
+    if (stub) {
+      if (stub.dataset.dragged) { delete stub.dataset.dragged; return; }
+      stub.classList.remove("nudge"); void stub.offsetWidth; stub.classList.add("nudge");
+      toast("Drag the stub to the right to tear it off");
+      return;
+    }
+    const tk = e.target.closest(".ticket");
+    if (tk && (e.target.closest(".main") || e.target.closest(".back"))) tk.classList.toggle("flipped");
+  });
+  passesEl.addEventListener("keydown", e => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const tk = e.target.closest(".ticket"); if (!tk || e.target.tagName === "BUTTON") return;
+    e.preventDefault(); tk.classList.toggle("flipped");
+  });
 
   // ================= FLIGHT MAP =================
   const planeAnim = { x: null, y: null, a: 0, tx: 0, ty: 0, ta: 0, raf: 0 };
@@ -343,13 +440,13 @@
       if (n === "Singapore" || n === "Kolkata" || n === "Patna") return;
       s += '<circle class="city-dot" cx="' + x + '" cy="' + y + '" r="1.6"/><text class="lbl-city" x="' + (x + 4) + '" y="' + (y + 3) + '">' + n + "</text>";
     });
-    s += '<g id="routes"></g><g id="trackG"></g>';
+    s += '<g id="routes"></g>';
     Object.entries(AIRPORTS).forEach(([code, a]) => {
       const [x, y] = proj(a.lon, a.lat);
       const dx = code === "CCU" ? 8 : -8, anchor = dx < 0 ? "end" : "start";
       s += '<circle class="ap-dot" cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="3.2"/><text class="ap-lbl" x="' + (x + dx).toFixed(1) + '" y="' + (y + (code === "PAT" ? -4 : 4)).toFixed(1) + '" text-anchor="' + anchor + '">' + code + "</text>";
     });
-    s += '<g id="planeG"><circle class="plane-halo" r="10" opacity=".18">' + (reduceMotion ? "" : '<animate attributeName="r" values="8;16;8" dur="2.4s" repeatCount="indefinite"/><animate attributeName="opacity" values=".25;0;.25" dur="2.4s" repeatCount="indefinite"/>') + '</circle><path class="plane" d="' + PLANE_PATH + '"/></g>';
+    s += '<g id="planeG"><circle class="plane-halo" r="10" opacity=".18">' + (reduceMotion ? "" : '<animate attributeName="r" values="8;16;8" dur="2.4s" repeatCount="5"/><animate attributeName="opacity" values=".25;0;.25" dur="2.4s" repeatCount="5"/>') + '</circle><path class="plane" d="' + PLANE_PATH + '"/></g>';
     $("mapSvg").innerHTML = s;
   }
   function polyPts(a, b, t0, t1, n) {
@@ -373,15 +470,6 @@
     const g = $("planeG"); if (g) g.setAttribute("transform", "translate(" + planeAnim.x.toFixed(2) + "," + planeAnim.y.toFixed(2) + ") rotate(" + planeAnim.a.toFixed(1) + ") scale(1.2)");
   }
   let drawNext = true, lastOver = "";
-  function trackStats(arr) {
-    let d = 0, maxAlt = null, maxSpd = 0;
-    for (let i = 0; i < arr.length; i++) {
-      if (i) d += dist({ lat: arr[i - 1][1], lon: arr[i - 1][2] }, { lat: arr[i][1], lon: arr[i][2] });
-      if (arr[i][3] != null) maxAlt = Math.max(maxAlt || 0, arr[i][3]);
-      maxSpd = Math.max(maxSpd, arr[i][4] || 0);
-    }
-    return { d, maxAlt, maxSpd, mins: arr.length > 1 ? (arr[arr.length - 1][0] - arr[0][0]) / 60000 : 0 };
-  }
   function renderFlight() {
     if (!MAP) return;
     const now = Date.now();
@@ -391,11 +479,9 @@
     $("legChips").innerHTML = state.flights.map(x => '<button class="chip" data-leg="' + x.id + '" aria-pressed="' + (x.id === f.id) + '">' + x.from + " → " + x.to + "</button>").join("") +
       (userPickedLeg ? '<button class="chip" data-leg="auto" aria-pressed="false">Auto</button>' : "");
     // routes + track
-    const trk = tracks[f.id] || [];
     let r = state.flights.map(x => '<polyline class="route-all" points="' + polyPts(AIRPORTS[x.from], AIRPORTS[x.to], 0, 1, 48) + '"/>').join("");
-    if (trk.length < 2 && P.prog > 0.002 && P.src !== "gps") r += '<polyline class="route-done' + (drawNext ? " draw" : "") + '" pathLength="1" points="' + polyPts(A, B, 0, P.prog, 48) + '"/>';
+    if (P.prog > 0.002) r += '<polyline class="route-done' + (drawNext ? " draw" : "") + '" pathLength="1" points="' + polyPts(A, B, 0, P.prog, 48) + '"/>';
     $("routes").innerHTML = r;
-    $("trackG").innerHTML = trk.length >= 2 ? '<polyline class="route-track' + (drawNext ? " draw" : "") + '" pathLength="1" points="' + trk.map(p => proj(p[2], p[1]).map(v => v.toFixed(1)).join(",")).join(" ") + '"/>' : "";
     drawNext = false;
     const [px, py] = proj(P.lon, P.lat);
     movePlane(px, py, P.hdg || 0);
@@ -429,7 +515,6 @@
     $("sliderBox").style.display = P.src === "preview" ? "" : "none";
     $("prevVal").textContent = $("prev").value + "%";
     renderWindow(P, now);
-    renderLog(f);
   }
   const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
   $("legChips").addEventListener("click", e => {
@@ -438,6 +523,41 @@
     drawNext = true; renderFlight();
   });
   $("prev").addEventListener("input", renderFlight);
+
+  // ================= SUN + PORTHOLE =================
+  function sunPos(ms, lat, lon) {
+    const d = ms / 86400000 - 10957.5;
+    const g = toRad((357.529 + 0.98560028 * d) % 360), q = (280.459 + 0.98564736 * d) % 360;
+    const L = toRad(q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)), e = toRad(23.439 - 0.00000036 * d);
+    const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), dec = Math.asin(Math.sin(e) * Math.sin(L));
+    const gmst = (18.697374558 + 24.06570982441908 * d) % 24;
+    const ha = toRad(gmst * 15 + lon) - ra, la = toRad(lat);
+    const elev = toDeg(Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha)));
+    const az = (toDeg(Math.atan2(-Math.sin(ha), Math.tan(dec) * Math.cos(la) - Math.sin(la) * Math.cos(ha))) + 360) % 360;
+    return { elev, az };
+  }
+  function nextCross(ms, lat, lon, up) {
+    let prev = sunPos(ms, lat, lon).elev;
+    for (let k = 1; k <= 168; k++) { const e = sunPos(ms + k * 300000, lat, lon).elev; if (up ? (prev < -0.83 && e >= -0.83) : (prev >= -0.83 && e < -0.83)) return k * 5; prev = e; }
+    return null;
+  }
+  const inWords = m => m < 60 ? m + " min" : Math.floor(m / 60) + "h " + pad(m % 60) + "m";
+  function renderPorthole(P, when) {
+    const s = sunPos(when, P.lat, P.lon);
+    const sky = s.elev < -8 ? "night" : s.elev < 0 ? "dusk" : s.elev < 10 ? "golden" : "day";
+    $("porthole").className = "porthole " + sky;
+    const rel = ((s.az - (P.hdg || 0) + 540) % 360) - 180;
+    const where = rel <= -25 && rel >= -155 ? "on your <b>left</b>" : rel >= 25 && rel <= 155 ? "on your <b>right</b>" : Math.abs(rel) < 25 ? "<b>ahead</b> of the plane" : "<b>behind</b> the plane";
+    let txt;
+    if (s.elev >= -0.83) {
+      const set = nextCross(when, P.lat, P.lon, false);
+      txt = "The sun is " + where + (set != null && set <= 180 ? ". It sets in about <b>" + inWords(set) + "</b>" + (set <= 60 ? ", so look out for the sunset!" : ".") : ".");
+    } else {
+      const rise = nextCross(when, P.lat, P.lon, true);
+      txt = "It's dark out" + (rise != null && rise <= 180 ? ", and sunrise is in about <b>" + inWords(rise) + "</b>, " + where + "." : ". Look down for city lights.");
+    }
+    $("sunLine").innerHTML = txt;
+  }
 
   // ================= OUT YOUR WINDOW =================
   let lastWindowKey = "";
@@ -477,34 +597,10 @@
       aheadTxt = "Coming up ahead: <b>" + esc(a.n) + "</b> · " + fmtInt(a.d) + " km" + (mins != null && P.src !== "preview" ? " (~" + Math.round(mins) + " min)" : "");
     } else aheadTxt = "Nothing big straight ahead for a while.";
     $("ahead").innerHTML = aheadTxt;
+    { const t = legTimes(P.leg); renderPorthole(P, P.src === "preview" && t ? t.dep + P.prog * P.leg.dur * 60000 : now); }
     $("seatHint").textContent = side === "left" || side === "right" ? "Based on seat " + P.leg.seat.toUpperCase() + ". Check it once you're on board, since plane layouts differ." :
       side === "aisle" ? "Seat " + P.leg.seat.toUpperCase() + " looks like a middle or aisle seat. Lean over!" : "Add your seat in Edit flights and your window side gets highlighted.";
   }
-
-  // ================= FLIGHT LOG =================
-  let clearArmed = null;
-  function renderLog(f) {
-    const arr = tracks[f.id] || [];
-    const box = $("logCard");
-    if (arr.length < 3) { box.style.display = "none"; return; }
-    box.style.display = "";
-    const s = trackStats(arr);
-    const straight = legLen(f);
-    $("logTitle").textContent = "YOUR RECORDED FLIGHT · " + f.from + " → " + f.to;
-    $("logStats").innerHTML =
-      '<div class="stat"><small>FLOWN</small><b>' + fmtInt(s.d) + "<em>km</em></b></div>" +
-      '<div class="stat"><small>STRAIGHT LINE</small><b>' + fmtInt(straight) + "<em>km</em></b></div>" +
-      '<div class="stat"><small>RECORDED</small><b>' + dur(s.mins) + "</b></div>" +
-      '<div class="stat"><small>TOP SPEED</small><b>' + fmtInt(s.maxSpd * 3.6) + "<em>km/h</em></b></div>" +
-      '<div class="stat"><small>HIGHEST</small><b>' + (s.maxAlt != null ? fmtInt(s.maxAlt * 3.28084) + "<em>ft</em>" : "—") + "</b></div>" +
-      '<div class="stat"><small>GPS POINTS</small><b>' + arr.length + "</b></div>";
-  }
-  $("clearLog").addEventListener("click", () => {
-    const b = $("clearLog");
-    if (clearArmed) { clearTimeout(clearArmed); clearArmed = null; b.textContent = "Delete recording"; delete tracks[selLeg]; saveTracks(); drawNext = true; renderFlight(); return; }
-    b.textContent = "Tap again to delete";
-    clearArmed = setTimeout(() => { clearArmed = null; b.textContent = "Delete recording"; }, 3500);
-  });
 
   // ================= GPS card =================
   function renderGPS() {
@@ -513,15 +609,14 @@
     btn.textContent = gps.on ? "Stop GPS" : "Start GPS";
     btn.className = gps.on ? "btn" : "btn red";
     const ago = gps.last ? Math.round((Date.now() - gps.last.t) / 1000) : null;
-    if (gps.status === "off") { title.textContent = "GPS is off"; sub.textContent = "Tap Start GPS before takeoff. Without it, the map estimates from your flight times."; }
+    if (gps.status === "off") { title.textContent = "GPS is off"; sub.textContent = "Turn it on once. After that it only runs while you're looking at this tab, then switches off to save battery."; }
     else if (gps.status === "searching") { title.textContent = "Searching for satellites…"; sub.textContent = "Hold the phone near the window. The first lock can take a minute or two."; }
     else if (gps.status === "locked" && ago != null && ago > 120) { dot.className = "gps-dot lost"; title.textContent = "Signal lost " + Math.round(ago / 60) + " min ago"; sub.textContent = "Showing an estimate until it locks again. Move closer to the window."; }
-    else if (gps.status === "locked") { title.textContent = "Locked on" + (gps.last.acc ? " · ±" + fmtInt(gps.last.acc) + " m" : ""); sub.textContent = "Updated " + (ago < 3 ? "just now" : ago + "s ago") + ". Keep the app open with the screen on, or iPhone pauses it."; }
+    else if (gps.status === "locked") { title.textContent = "Locked on" + (gps.last.acc ? " · ±" + fmtInt(gps.last.acc) + " m" : ""); sub.textContent = "Updated " + (ago < 3 ? "just now" : ago + "s ago") + ". GPS only runs while this tab is open, so lock your phone between check-ins."; }
     else if (gps.status === "lost") { title.textContent = "Lost the signal"; sub.textContent = "Showing an estimate until it locks again. Move closer to the window."; }
     else if (gps.status === "denied") { title.textContent = "Can't use location"; sub.textContent = gps.err; }
   }
   $("gpsBtn").addEventListener("click", () => gps.on ? stopGPS() : startGPS());
-  $("wake").addEventListener("change", e => setWake(e.target.checked));
 
   // ================= CHECKLIST =================
   let ckEditing = false;
@@ -654,7 +749,7 @@
     document.querySelectorAll("nav.tabs button").forEach(b => { if (b.dataset.tab === name) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
     $("main").scrollTop = 0;
     if (name === "passes") { passesAnimated = false; stampSeen.clear(); renderPasses(); }
-    if (name === "flight") { drawNext = true; lastWindowKey = ""; renderFlight(); }
+    if (name === "flight") { drawNext = true; lastWindowKey = ""; resumeGPS(); renderFlight(); } else pauseGPS();
     if (name === "checklist") renderChecklist();
   }
   document.querySelector("nav.tabs").addEventListener("click", e => {
@@ -669,9 +764,9 @@
   tickClocks();
   setInterval(tickClocks, 1000);
   setInterval(() => { if (curTab === "flight") { renderGPS(); if (!gps.last || Date.now() - gps.last.t > 5000) renderFlight(); } if (curTab === "passes") renderPasses(); }, 5000);
-  window.addEventListener("pagehide", saveTracks);
 
   renderGPS(); renderChecklist();
+  try { if (localStorage.getItem(LS_GPS) === "1") { gps.on = true; gps.status = "searching"; } } catch (e) {}
   showTab(location.hash.slice(1) || "passes");
   fetch("map.json").then(r => r.json()).then(m => { MAP = m; buildMapBase(); renderFlight(); })
     .catch(() => { $("overTxt").textContent = "Map couldn't load. Open the app once with internet."; });
