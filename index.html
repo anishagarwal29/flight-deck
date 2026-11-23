@@ -37,8 +37,15 @@
         <div class="pocket-row" id="pocketRow"></div>
         <p class="note" id="pocketNote"></p>
       </div>
-      <div class="toolbar"><button class="btn primary" id="editFlights">Edit flights</button></div>
-      <p class="note">Tap a pass to flip it and see your seat. When you board, grab the stub and pull it right to tear it off.</p>
+      <div class="card" id="passport">
+        <div class="card-h"><h3>PASSPORT</h3><span class="kicker" id="ppCount"></span></div>
+        <div class="booklet">
+          <div class="pp-page left"><div class="pp-head">VISAS <span>12</span></div><div class="pp-stamps" id="ppLeft"></div></div>
+          <div class="pp-page right"><div class="pp-head"><span>13</span> VISAS</div><div class="pp-stamps" id="ppRight"></div></div>
+        </div>
+      </div>
+      <div class="toolbar"><button class="btn primary" id="editFlights">Edit flights</button><button class="btn" id="stickerBtn">Stickers</button></div>
+      <p class="note">Tap a pass to flip it and see your seat. When you board, hold the stub and drag it down and to the right to tear it off.</p>
     </section>
 
     <!-- FLIGHT -->
@@ -51,6 +58,10 @@
         </div>
       </div>
 
+      <div class="toolbar fx-btns">
+        <button class="btn fx" id="openWindow"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M6 9h12"/></svg>Window seat</button>
+        <button class="btn fx" id="openIFE"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Seatback screen</button>
+      </div>
       <div class="legs" id="legChips"></div>
       <div class="mapcard">
         <span class="mode-tag" id="modeTag">PREVIEW</span>
@@ -100,14 +111,64 @@
   </main>
 
   <nav class="tabs" aria-label="Sections">
-    <button data-tab="passes"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6z"/><path d="M15 5v14" stroke-dasharray="2 2"/></svg>Passes</button>
-    <button data-tab="flight"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg>Flight</button>
-    <button data-tab="checklist"><svg viewBox="0 0 24 24"><circle cx="6" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><path d="M11 7h9M11 17h9"/></svg>Checklist</button>
+    <span class="tab-ind" aria-hidden="true"></span>
+    <button data-tab="passes"><svg viewBox="0 0 24 24"><path class="fillme" d="M3 7.5A2.5 2.5 0 0 1 5.5 5h13A2.5 2.5 0 0 1 21 7.5v1.8a2.7 2.7 0 0 0 0 5.4v1.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-1.8a2.7 2.7 0 0 0 0-5.4z"/><path d="M15 6v2M15 11v2M15 16v2"/></svg>Passes</button>
+    <button data-tab="flight"><svg viewBox="0 0 24 24"><path class="fillme" d="M21 15.5v-1.6l-7.6-4.6V4.6a1.4 1.4 0 0 0-2.8 0v4.7L3 13.9v1.6l7.6-2.3v4.4l-2.2 1.6v1.3l3.6-1 3.6 1v-1.3l-2.2-1.6v-4.4z"/></svg>Flight</button>
+    <button data-tab="checklist"><svg viewBox="0 0 24 24"><rect class="fillme" x="4" y="3" width="16" height="18" rx="3"/><path d="m8 9 1.6 1.6L12.5 7.5M8 15.5l1.6 1.6 2.9-3.1M15 9h1.5M15 15.5h1.5"/></svg>Checklist</button>
   </nav>
 </div>
 
 <div class="scrim" id="scrim"><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Edit flights"></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- sticker tray -->
+<div class="tray" id="tray" aria-label="Sticker sheet">
+  <div class="tray-h"><span>Drag a sticker onto a pass · drag one off to peel it</span><button class="btn sm primary" id="trayDone">Done</button></div>
+  <div class="tray-row" id="trayRow"></div>
+</div>
+
+<!-- window seat -->
+<div class="overlay win" id="win" role="dialog" aria-modal="true" aria-label="Window seat">
+  <button class="ov-close" id="winClose" aria-label="Close">×</button>
+  <div class="win-top"><span class="kicker" id="winSrc">PREVIEW</span><div class="seg"><button id="winSideL" aria-pressed="true">Left window</button><button id="winSideR" aria-pressed="false">Right window</button></div></div>
+  <div class="win-bezel">
+    <div class="win-pane day sea side-left" id="winPane">
+      <span class="w-sky"></span><span class="w-stars"></span><span class="win-sun" id="winSun"></span>
+      <span class="w-ground"></span><span class="w-lights"></span>
+      <span class="w-cloud k1"></span><span class="w-cloud k2"></span><span class="w-cloud k3"></span>
+      <svg class="w-wing" viewBox="0 0 200 80" aria-hidden="true"><path d="M0 80 L200 40 L200 52 L30 80 Z"/><path class="tip" d="M186 43 L200 20 L200 40 Z"/><circle class="nav" cx="197" cy="44" r="2.4"/></svg>
+      <div class="win-shade" id="winShade"><span class="lip"></span></div>
+    </div>
+  </div>
+  <p class="win-hint">Drag the window to pull the shade up or down</p>
+  <div class="win-info">
+    <small>RIGHT NOW YOU'RE OVER</small>
+    <b id="winOver">…</b>
+    <ul id="winList"></ul>
+    <p class="note" id="winNote"></p>
+  </div>
+</div>
+
+<!-- seatback screen -->
+<div class="overlay ife" id="ife" role="dialog" aria-modal="true" aria-label="Seatback screen">
+  <div class="ife-bezel">
+    <div class="ife-screen">
+      <div class="ife-top"><div id="ifeHead"></div><button class="ife-x" id="ifeClose" aria-label="Close">×</button></div>
+      <div class="ife-body in" id="ifeBody"></div>
+      <div class="ife-foot"><span id="ifeSrc"></span><span class="ife-dots" id="ifeDots"></span><span>TAP FOR NEXT</span></div>
+    </div>
+  </div>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="inkGrain" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="0.7" xChannelSelector="R" yChannelSelector="G" result="d"/>
+    <feTurbulence type="fractalNoise" baseFrequency="0.35" numOctaves="2" seed="3" result="m"/>
+    <feColorMatrix in="m" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.5 1.62" result="mask"/>
+    <feComposite in="d" in2="mask" operator="in"/>
+  </filter>
+</svg>
 
 <script src="app.js"></script>
 </body>

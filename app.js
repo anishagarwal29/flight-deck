@@ -36,6 +36,7 @@
         { id: "L1", from: "SIN", to: "CCU", no: "", dep: "", dur: 235, seat: "", gate: "" },
         { id: "L2", from: "CCU", to: "PAT", no: "", dep: "", dur: 65, seat: "", gate: "" }
       ],
+      stamps: [],
       checklist: defaultChecklist()
     };
   }
@@ -45,8 +46,10 @@
     const out = { v: 2, updatedAt: +s.updatedAt || 0 };
     out.flights = d.flights.map(f => {
       const g = Array.isArray(s.flights) ? s.flights.find(x => x && x.id === f.id) : null;
-      return g ? { ...f, no: String(g.no || ""), dep: String(g.dep || ""), dur: Math.max(10, +g.dur || f.dur), seat: String(g.seat || ""), gate: String(g.gate || ""), torn: !!g.torn, tornAt: +g.tornAt || 0, tear: g.tear && typeof g.tear.p === "number" ? { p: Math.max(0, Math.min(0.97, g.tear.p)), dir: g.tear.dir === "bottom" ? "bottom" : "top" } : null } : f;
+      return g ? { ...f, no: String(g.no || ""), dep: String(g.dep || ""), dur: Math.max(10, +g.dur || f.dur), seat: String(g.seat || ""), gate: String(g.gate || ""), torn: !!g.torn, tornAt: +g.tornAt || 0, tear: g.tear && typeof g.tear.p === "number" ? { p: Math.max(0, Math.min(0.97, g.tear.p)), dir: g.tear.dir === "bottom" ? "bottom" : "top" } : null,
+        stickers: Array.isArray(g.stickers) ? g.stickers.filter(k => k && typeof k.t === "string").slice(-14).map(k => ({ t: String(k.t), x: Math.max(0, Math.min(100, +k.x || 0)), y: Math.max(0, Math.min(100, +k.y || 0)), r: +k.r || 0, s: Math.max(0.6, Math.min(1.6, +k.s || 1)) })) : [] } : f;
     });
+    out.stamps = Array.isArray(s.stamps) ? s.stamps.filter(x => x && typeof x.id === "string").map(x => ({ id: x.id, at: +x.at || Date.now(), r: +x.r || 0, dx: +x.dx || 0 })) : [];
     out.checklist = Array.isArray(s.checklist) ? s.checklist.filter(c => c && c.id).map(c => ({ id: String(c.id), sec: String(c.sec || "OTHER"), label: String(c.label || ""), done: !!c.done })) : d.checklist;
     return out;
   }
@@ -219,7 +222,7 @@
     // takeoff / landing detection
     const spd = fix.spd || 0;
     if (!gps.airborne && spd > 60) { gps.airborne = true; gps.slowCount = 0; toast("Wheels up ✈  Enjoy the flight"); }
-    else if (gps.airborne && spd < 25) { if (++gps.slowCount >= 3) { gps.airborne = false; const near = nearestAirport(fix); toast(near ? "Touchdown in " + near.name : "Touchdown"); } }
+    else if (gps.airborne && spd < 25) { if (++gps.slowCount >= 3) { gps.airborne = false; const near = nearestAirport(fix); toast(near ? "Touchdown in " + near.name + ". Passport stamped!" : "Touchdown"); if (near) { const code = Object.keys(AIRPORTS).find(k => AIRPORTS[k] === near); if (code !== "SIN") addStamp("arr-" + code); } } }
     else gps.slowCount = 0;
     renderGPS(); renderFlight();
   }
@@ -315,7 +318,7 @@
     return fld("GATE", f.gate ? f.gate.toUpperCase() : "—") + fld("SEAT", f.seat ? f.seat.toUpperCase() : "—") +
       (side === "left" || side === "right" ? '<span class="side">WINDOW · ' + side.toUpperCase() + "</span>" : "") +
       '<div class="stamp ' + st.cls + '">' + st.txt + "</div>" + barcode(f.from + f.to + (f.no || "") + (f.dep || "")) +
-      '<span class="tear-hint">PULL TO TEAR ›</span>';
+      '<span class="tear-hint">PULL TO TEAR ↘</span>';
   }
   const stampSeen = new Map();
   let passesAnimated = false, landId = null, boardedThunk = null;
@@ -337,6 +340,7 @@
             '<div class="fields">' + fld("DATE", fmtDate(f)) + fld("DEPARTS", t ? hhmm(t.dep, A.zone) : "--:--") + fld("LANDS", t ? hhmm(t.arr, B.zone) : "--:--") +
             fld("FLIGHT", f.no ? f.no.toUpperCase() : "—") + fld("LENGTH", durWords(f.dur)) + fld("KM", fmtInt(legLen(f))) + "</div>" +
             (f.torn ? '<div class="boarded' + (boardedThunk === f.id ? " thunk" : "") + '">BOARDED</div>' : "") +
+            stickersHTML(f) +
           "</div>" +
           '<div class="stub" aria-label="Boarding pass stub. Drag right to tear it off.">' + stubInner(f) + "</div>" +
         "</div>" +
@@ -351,6 +355,8 @@
     });
     $("passes").innerHTML = html;
     renderPocket();
+    autoStamps();
+    renderPassport();
     passesAnimated = true; boardedThunk = null;
     requestAnimationFrame(applyStaticTears);
   }
@@ -457,8 +463,9 @@
 
   // ---------- sound (synthesised, no files) ----------
   let actx = null, noiseBuf = null, tearSnd = null;
-  function audio() {
+  function audio(create) {
     try {
+      if (!actx && !create) return null;
       if (!actx) {
         actx = new (window.AudioContext || window.webkitAudioContext)();
         noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
@@ -512,17 +519,20 @@
     s.connect(f); f.connect(g); g.connect(a.destination); s.start(t); s.stop(t + 0.4);
   }
 
+  // sound can only start after a tap, so unlock it on the first touch anywhere
+  document.addEventListener("pointerdown", () => audio(true), true);
+
   // ---------- the tear ----------
   // Grab the stub and pull right. The tear runs along the perforation from the end nearest your finger;
   // the torn part hinges at the tear tip while the rest stays attached. Let go early and the tear stays.
-  const TEAR_LEN = 118;           // px of pull to tear all the way through
+  const TEAR_LEN = 92;            // px of pull to tear all the way through
   let T = null, quietUntil = 0;
   const passesEl = $("passes");
   passesEl.addEventListener("pointerdown", e => {
+    if (stickerMode) return;
     const stub = e.target.closest(".front > .stub"); if (!stub || T) return;
     const tk = stub.closest(".ticket"); if (tk.classList.contains("torn")) return;
     const f = state.flights.find(x => x.id === tk.dataset.id); if (!f) return;
-    audio();
     const r = stub.getBoundingClientRect();
     const dir = f.tear && f.tear.p > 0 ? f.tear.dir : (e.clientY - r.top < r.height / 2 ? "top" : "bottom");
     T = { f, tk, stub, main: tk.querySelector(".main"), front: tk.querySelector(".front"), id: e.pointerId, x0: e.clientX, y0: e.clientY,
@@ -533,17 +543,18 @@
   passesEl.addEventListener("pointermove", e => {
     if (!T || e.pointerId !== T.id) return;
     const dx = e.clientX - T.x0, dy = e.clientY - T.y0;
+    // pull = how far the stub is being dragged away from the pass: rightwards, and along the perforation
+    // away from where it's still attached (down for a top tear, up for a bottom tear), like tearing a real ticket
+    const along = T.dir === "top" ? dy : -dy;
     if (!T.live) {
-      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { T = null; return; }   // it's a scroll
-      if (dx < 7) return;
+      if (dx < -10 || (along < -10 && dx < 6)) { T = null; return; }      // pushed the wrong way: ignore
+      if (Math.max(dx, 0) + Math.max(along, 0) < 7) return;
       T.live = true;
       try { T.stub.setPointerCapture(e.pointerId); } catch (err) {}
       beginTear();
     }
     e.preventDefault();
-    // pulling slightly toward the attached end makes the tear go faster, like real paper
-    const assist = T.dir === "top" ? dy : -dy;
-    const pull = Math.max(0, dx + Math.max(0, assist) * 0.35);
+    const pull = Math.max(0, Math.max(0, dx) * 1.1 + Math.max(0, along) * 0.9);
     T.ang = Math.min(34, pull * 0.24);
     const target = Math.max(0, Math.min(1, (pull - 10) / TEAR_LEN)) * T.H;
     if (target > T.e) T.e = target;          // paper never heals
@@ -692,11 +703,11 @@
     };
   }
   passesEl.addEventListener("click", e => {
-    if (performance.now() < quietUntil) return;
+    if (performance.now() < quietUntil || stickerMode) return;
     const stub = e.target.closest(".front > .stub");
     if (stub) {
       stub.classList.remove("nudge"); void stub.offsetWidth; stub.classList.add("nudge");
-      toast("Pull the stub to the right to tear it off");
+      toast("Hold the stub and drag it down and to the right");
       return;
     }
     const tk = e.target.closest(".ticket");
@@ -1023,8 +1034,10 @@
   function showTab(name) {
     if (!TABS[name]) name = "passes";
     curTab = name;
+    if (stickerMode && name !== "passes") setStickerMode(false);
     Object.entries(TABS).forEach(([k, v]) => $(v).classList.toggle("on", k === name));
     document.querySelectorAll("nav.tabs button").forEach(b => { if (b.dataset.tab === name) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+    document.querySelector("nav.tabs").style.setProperty("--idx", Object.keys(TABS).indexOf(name));
     $("main").scrollTop = 0;
     if (name === "passes") { passesAnimated = false; stampSeen.clear(); renderPasses(); hintTear(); }
     if (name === "flight") { drawNext = true; lastWindowKey = ""; resumeGPS(); renderFlight(); } else pauseGPS();
@@ -1035,6 +1048,360 @@
     if (location.hash !== "#" + b.dataset.tab) location.hash = b.dataset.tab; else showTab(b.dataset.tab);
   });
   window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
+
+  // ================= STICKERS =================
+  const INDIA_D = "M2.0 43.2 L3.1 42.8 L3.9 41.8 L4.9 41.8 L6.2 41.8 L7.1 42.2 L8.3 41.9 L9.0 41.5 L10.0 41.8 L11.0 41.6 L11.3 40.6 L10.9 39.2 L10.4 38.4 L10.2 37.4 L9.1 37.2 L8.4 36.4 L8.5 35.0 L7.8 34.2 L6.7 33.8 L6.4 33.0 L6.8 32.1 L7.7 31.3 L8.2 30.6 L8.7 29.9 L9.7 29.5 L10.2 30.1 L10.9 30.5 L12.0 30.1 L13.1 30.0 L14.2 29.7 L15.1 28.4 L15.6 27.3 L16.7 26.6 L17.6 26.2 L18.4 25.1 L18.8 24.3 L19.2 23.2 L20.1 22.9 L20.9 22.5 L21.2 21.3 L21.9 20.5 L22.9 19.8 L23.2 18.2 L23.0 17.2 L23.6 16.6 L24.7 16.1 L25.6 15.7 L24.9 15.0 L23.8 14.9 L23.4 13.9 L22.2 13.7 L21.6 12.9 L21.7 11.6 L21.1 10.9 L21.9 10.2 L21.0 9.8 L20.6 8.8 L21.1 7.7 L22.2 7.3 L23.2 7.5 L24.3 7.7 L25.4 7.9 L26.5 8.2 L27.6 7.8 L29.3 7.3 L30.3 7.0 L31.1 6.6 L31.6 6.0 L32.5 5.6 L33.4 5.1 L34.4 4.9 L34.6 6.1 L35.2 7.3 L36.1 8.0 L36.9 8.3 L37.6 8.8 L36.8 9.5 L37.0 11.0 L37.4 11.8 L38.0 12.4 L38.3 13.3 L38.4 14.6 L37.7 15.2 L36.9 14.9 L36.1 14.5 L35.9 15.4 L36.6 16.3 L36.8 17.5 L36.8 18.6 L37.7 18.4 L38.4 18.9 L38.9 19.5 L39.8 19.8 L40.7 20.1 L41.6 20.5 L42.3 21.3 L43.2 21.6 L44.2 22.2 L43.2 23.0 L42.3 23.9 L41.8 24.9 L41.5 25.9 L41.1 26.7 L42.0 27.4 L43.2 27.6 L43.9 28.0 L44.8 28.5 L45.9 29.4 L46.7 29.9 L47.9 30.0 L49.0 30.7 L49.9 31.1 L51.1 31.4 L52.0 31.5 L53.3 31.5 L54.4 31.2 L55.7 31.7 L56.3 32.6 L57.2 33.1 L58.0 33.6 L59.3 33.4 L59.8 34.0 L61.1 34.1 L62.5 34.5 L64.0 34.3 L64.9 35.0 L66.1 34.8 L67.2 34.9 L67.8 33.8 L67.2 32.6 L67.3 31.5 L67.8 30.4 L68.2 29.7 L69.0 29.4 L70.0 29.9 L69.7 31.1 L70.2 31.8 L70.1 33.0 L71.1 33.5 L72.1 33.5 L73.1 33.8 L74.2 33.7 L75.0 33.2 L75.9 33.6 L77.6 33.5 L78.6 33.3 L79.6 33.4 L80.6 33.3 L80.5 32.2 L79.9 31.4 L79.1 31.0 L79.8 30.4 L80.8 30.2 L82.0 30.1 L82.7 29.6 L83.3 28.8 L84.1 28.3 L84.5 27.5 L85.9 27.3 L86.7 26.9 L87.4 26.3 L88.0 25.8 L89.1 25.3 L90.2 25.8 L91.2 26.1 L92.0 25.6 L93.2 25.0 L94.2 25.4 L94.1 26.4 L95.0 26.1 L95.5 27.1 L94.7 27.9 L95.7 28.1 L96.8 28.5 L97.8 28.8 L98.0 29.8 L97.0 30.4 L96.5 30.9 L97.2 32.3 L96.2 31.9 L94.5 31.9 L93.5 32.4 L92.7 33.0 L91.8 33.6 L91.0 34.0 L90.5 35.0 L90.7 36.0 L90.3 36.9 L89.6 37.7 L88.9 38.4 L89.3 39.1 L89.0 40.2 L88.3 41.1 L87.7 42.4 L87.0 43.1 L86.0 42.7 L84.9 42.5 L85.1 43.8 L85.0 44.9 L84.7 45.9 L84.1 46.6 L84.2 48.1 L83.8 48.8 L82.6 48.9 L82.2 48.0 L82.0 46.9 L81.6 45.8 L81.4 44.4 L80.9 43.7 L80.2 44.0 L79.7 44.8 L79.6 45.9 L78.7 45.6 L78.0 44.8 L77.7 43.8 L78.2 42.7 L79.1 42.2 L80.1 41.9 L80.8 41.4 L81.1 40.5 L81.7 39.9 L81.1 39.1 L79.6 38.9 L78.5 38.9 L77.3 38.9 L75.9 38.9 L74.7 38.8 L73.4 38.5 L73.2 36.7 L72.9 35.6 L72.1 36.2 L71.2 35.8 L70.8 34.9 L70.0 35.3 L69.3 34.7 L68.7 34.3 L68.4 35.3 L67.8 35.9 L68.1 36.8 L68.8 37.6 L69.8 37.8 L70.4 38.5 L69.5 38.8 L68.5 39.6 L67.4 40.4 L68.0 41.2 L68.9 41.6 L69.7 42.1 L69.3 43.3 L69.6 44.4 L69.9 45.3 L70.1 46.2 L70.5 47.6 L70.8 48.7 L70.4 49.5 L70.7 50.5 L69.7 50.7 L69.7 49.3 L69.1 49.9 L68.8 50.6 L67.7 50.5 L67.9 49.2 L67.2 48.5 L67.1 49.9 L66.2 50.5 L64.6 50.8 L63.8 51.4 L63.5 52.2 L63.8 53.4 L63.2 54.5 L62.3 55.3 L61.7 55.9 L60.2 56.6 L59.3 56.9 L58.2 56.7 L56.6 58.8 L56.1 59.6 L55.6 60.2 L54.7 61.2 L53.0 62.2 L52.1 63.2 L51.5 63.8 L50.8 64.2 L49.5 64.9 L48.7 65.4 L48.7 66.7 L48.0 67.4 L46.7 68.0 L45.6 67.8 L44.7 69.2 L44.2 69.8 L43.3 69.4 L42.2 69.7 L41.3 71.3 L41.3 73.0 L41.5 74.0 L41.3 74.9 L41.7 76.1 L42.0 77.3 L41.5 76.6 L41.9 77.5 L41.7 79.9 L41.1 81.2 L40.5 82.2 L40.2 83.2 L40.1 84.3 L40.5 86.3 L40.4 87.7 L38.9 87.8 L38.5 88.7 L37.7 89.8 L37.5 90.8 L38.6 91.2 L35.8 91.7 L35.0 92.4 L34.8 93.7 L33.6 94.7 L32.8 95.1 L31.3 94.3 L29.8 92.6 L29.4 91.8 L28.9 90.6 L28.6 89.0 L29.0 89.7 L28.6 88.7 L28.2 87.7 L27.5 86.2 L27.3 85.3 L26.9 84.3 L26.2 83.2 L25.5 82.3 L24.3 80.4 L24.1 79.4 L23.5 77.2 L23.2 76.1 L22.7 75.1 L22.5 74.0 L21.9 73.3 L21.3 72.5 L20.9 71.3 L20.5 70.5 L19.9 69.5 L19.4 68.6 L19.0 67.5 L18.7 65.1 L18.4 64.0 L18.1 62.8 L17.8 61.6 L17.7 60.6 L17.9 59.4 L17.3 58.5 L17.0 57.3 L17.0 55.6 L17.5 54.0 L17.4 52.8 L16.9 52.0 L17.0 50.8 L18.0 50.3 L16.4 50.3 L16.7 49.5 L17.0 48.6 L15.7 48.4 L15.2 49.3 L15.5 50.4 L14.9 51.9 L13.2 52.7 L11.4 53.5 L9.6 53.1 L8.5 52.3 L7.2 50.9 L6.5 50.4 L5.4 49.3 L4.8 48.7 L5.2 47.9 L6.6 48.0 L8.1 47.5 L9.1 46.6 L9.7 46.0 L8.7 46.1 L7.6 46.5 L5.6 46.5 L4.2 45.9 L3.2 44.8 L3.0 43.9 L4.0 43.2 L3.1 43.6 L2.2 44.0Z";
+  const ST = {
+    plane: '<path transform="translate(50 50) rotate(45) scale(3.7)" fill="#c8362d" d="' + PLANE_PATH + '"/>',
+    chai: '<path d="M22 34 L78 34 L68 86 Q50 92 32 86 Z" fill="#c4683b"/><path d="M22 34 L78 34 L76 44 L24 44 Z" fill="#9c4a26"/><ellipse cx="50" cy="35" rx="28" ry="6" fill="#d9a066"/><path d="M34 60 Q50 66 66 60" stroke="#9c4a26" stroke-width="3" fill="none"/><path d="M42 26 q-6 -8 0 -14 q6 -6 0 -12" stroke="#a79f92" stroke-width="4" fill="none" stroke-linecap="round"/><path d="M58 26 q-6 -8 0 -14 q6 -6 0 -12" stroke="#a79f92" stroke-width="4" fill="none" stroke-linecap="round"/>',
+    sun: '<g fill="#f59e2b">' + Array.from({ length: 12 }, (_, k) => '<path transform="rotate(' + k * 30 + ' 50 50)" d="M50 6 L56 22 L44 22 Z"/>').join("") + '</g><circle cx="50" cy="50" r="24" fill="#ffc93c"/><circle cx="42" cy="47" r="2.6" fill="#7a4a12"/><circle cx="58" cy="47" r="2.6" fill="#7a4a12"/><path d="M41 56 Q50 64 59 56" stroke="#7a4a12" stroke-width="3" fill="none" stroke-linecap="round"/>',
+    palm: '<path d="M52 92 Q46 64 54 40" stroke="#8a5a2b" stroke-width="9" fill="none" stroke-linecap="round"/><g fill="#2f9a52"><path d="M54 40 Q30 22 8 34 Q32 30 54 44Z"/><path d="M54 40 Q78 20 94 34 Q72 30 54 44Z"/><path d="M54 40 Q42 14 26 8 Q44 22 52 42Z"/><path d="M54 40 Q68 12 84 10 Q66 24 56 42Z"/><path d="M54 40 Q40 46 30 64 Q46 48 56 44Z"/></g><circle cx="50" cy="45" r="4.5" fill="#6b4220"/><circle cx="58" cy="46" r="4.5" fill="#6b4220"/>',
+    suitcase: '<rect x="38" y="12" width="24" height="16" rx="5" fill="none" stroke="#1e2331" stroke-width="6"/><rect x="16" y="26" width="68" height="56" rx="9" fill="#2a6fb5"/><rect x="30" y="26" width="7" height="56" fill="#4f8fd0"/><rect x="63" y="26" width="7" height="56" fill="#4f8fd0"/><rect x="42" y="44" width="16" height="12" rx="2" fill="#ffc93c" transform="rotate(-8 50 50)"/><circle cx="28" cy="87" r="5" fill="#1e2331"/><circle cx="72" cy="87" r="5" fill="#1e2331"/>',
+    camera: '<rect x="10" y="30" width="80" height="54" rx="10" fill="#2b2f3a"/><path d="M34 30 L40 20 L60 20 L66 30 Z" fill="#2b2f3a"/><circle cx="50" cy="57" r="19" fill="#5c6b80"/><circle cx="50" cy="57" r="12" fill="#151922"/><circle cx="45" cy="52" r="4" fill="#9fb3cc"/><rect x="70" y="36" width="12" height="7" rx="2" fill="#ffc93c"/><circle cx="20" cy="38" r="3.5" fill="#e8425a"/>',
+    star: '<path d="M50 6 L62 36 L94 38 L69 58 L78 90 L50 72 L22 90 L31 58 L6 38 L38 36 Z" fill="#ffc93c"/><path d="M50 22 L57 40 L76 41 L61 53 L66 72 L50 61 Z" fill="#ffe08a"/>',
+    heart: '<path d="M50 88 C18 66 6 48 8 32 C10 16 26 8 38 12 C44 14 48 18 50 24 C52 18 56 14 62 12 C74 8 90 16 92 32 C94 48 82 66 50 88Z" fill="#e8425a"/><path d="M26 26 Q20 32 22 40" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round" opacity=".6"/>',
+    cloud: '<path d="M22 74 Q6 72 8 58 Q10 44 26 46 Q28 26 48 26 Q66 26 70 42 Q90 40 92 58 Q92 74 76 74 Z" fill="#dff0fb" stroke="#7fb3dc" stroke-width="4"/>',
+    india: '<defs><linearGradient id="tri" x1="0" y1="0" x2="0" y2="1"><stop offset=".33" stop-color="#f59a3a"/><stop offset=".33" stop-color="#ffffff"/><stop offset=".66" stop-color="#ffffff"/><stop offset=".66" stop-color="#2e8b47"/></linearGradient></defs><path d="' + INDIA_D + '" fill="url(#tri)" stroke="#1e2331" stroke-width="1.6" stroke-linejoin="round"/><circle cx="44" cy="46" r="4.5" fill="none" stroke="#2a3f8f" stroke-width="1.6"/>',
+    badge: '<circle cx="50" cy="50" r="44" fill="#c8362d"/><circle cx="50" cy="50" r="37" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 3"/><text x="50" y="44" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="22" fill="#fff">SIN</text><path transform="translate(50 52) rotate(180) scale(.9)" fill="#fff" d="' + PLANE_PATH + '"/><text x="50" y="80" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="22" fill="#fff">PAT</text>',
+    voyage: '<path d="M4 38 L18 34 L18 66 L4 62 L10 50 Z" fill="#1c3f78"/><path d="M96 38 L82 34 L82 66 L96 62 L90 50 Z" fill="#1c3f78"/><rect x="14" y="30" width="72" height="40" rx="3" fill="#2a559c"/><text x="50" y="56" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="17" fill="#fff" letter-spacing="1">BON VOYAGE</text>'
+  };
+  const ST_KEYS = Object.keys(ST);
+  function stickerSVG(t) {
+    const art = ST[t] || ST.star;
+    return '<svg viewBox="-9 -9 118 118" aria-hidden="true"><g class="cut">' + art.replace(/<defs>.*?<\/defs>/, "") + "</g>" + art + "</svg>";
+  }
+  function stickersHTML(f) {
+    return (f.stickers || []).map((s, k) => '<span class="stk" data-sk="' + k + '" style="left:' + s.x + "%;top:" + s.y + "%;--r:" + s.r + "deg;--s:" + s.s + '">' + stickerSVG(s.t) + "</span>").join("");
+  }
+  let stickerMode = false;
+  function setStickerMode(on) {
+    stickerMode = on;
+    document.body.classList.toggle("sticker-mode", on);
+    $("stickerBtn").textContent = on ? "Done" : "Stickers";
+    $("stickerBtn").className = on ? "btn red" : "btn";
+    $("tray").classList.toggle("on", on);
+    if (on) { const m = $("main"); if (m.scrollTo) m.scrollTo({ top: 0, behavior: "smooth" }); else m.scrollTop = 0; }
+    if (on && !$("trayRow").firstChild) $("trayRow").innerHTML = ST_KEYS.map(k => '<button class="tray-stk" data-st="' + k + '" aria-label="' + k + ' sticker">' + stickerSVG(k) + "</button>").join("");
+  }
+  $("stickerBtn").addEventListener("click", () => setStickerMode(!stickerMode));
+  $("trayDone").addEventListener("click", () => setStickerMode(false));
+  function slapSound() { burst(0.05, 1200, 0.7, 0.55, "lowpass"); burst(0.03, 3000, 1, 0.25); }
+  function peelSound() {
+    const a = audio(); if (!a) return;
+    const t = a.currentTime, s = a.createBufferSource(); s.buffer = noiseBuf;
+    const f = a.createBiquadFilter(); f.type = "bandpass"; f.Q.value = 3; f.frequency.setValueAtTime(5000, t); f.frequency.exponentialRampToValueAtTime(1500, t + 0.22);
+    const g = a.createGain(); g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    s.connect(f); f.connect(g); g.connect(a.destination); s.start(t); s.stop(t + 0.3);
+  }
+  // drag a sticker from the tray or move one already on a pass
+  let SD = null;
+  function mainUnder(x, y) {
+    const el = document.elementFromPoint(x, y);
+    const main = el && el.closest && el.closest("#passes .main");
+    return main && !main.closest(".ticket").classList.contains("flipped") ? main : null;
+  }
+  function startStickerDrag(e, t, fromEl, existing) {
+    audio();
+    const r = fromEl.getBoundingClientRect();
+    const fl = document.createElement("div");
+    fl.className = "stk-float"; fl.innerHTML = stickerSVG(t);
+    fl.style.setProperty("--r", (existing ? existing.s.r : (Math.random() * 24 - 12).toFixed(0)) + "deg");
+    document.body.appendChild(fl);
+    document.body.classList.add("stk-dragging");
+    SD = { t, fl, id: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false, existing, size: 52 * (existing ? existing.s.s : 1), from: r };
+    moveFloat(e.clientX, e.clientY);
+  }
+  function moveFloat(x, y) {
+    if (!SD) return;
+    SD.fl.style.left = (x - SD.size / 2) + "px"; SD.fl.style.top = (y - SD.size / 2) + "px";
+    SD.fl.style.width = SD.fl.style.height = SD.size + "px";
+    document.querySelectorAll("#passes .main.drop").forEach(m => m.classList.remove("drop"));
+    const m = mainUnder(x, y); if (m) m.classList.add("drop");
+  }
+  $("trayRow").addEventListener("pointerdown", e => {
+    const b = e.target.closest("[data-st]"); if (!b) return;
+    e.preventDefault();
+    startStickerDrag(e, b.dataset.st, b, null);
+  });
+  $("passes").addEventListener("pointerdown", e => {
+    if (!stickerMode) return;
+    const s = e.target.closest(".stk"); if (!s) return;
+    e.preventDefault(); e.stopPropagation();
+    const tk = s.closest(".ticket"), f = state.flights.find(x => x.id === tk.dataset.id), k = +s.dataset.sk;
+    startStickerDrag(e, f.stickers[k].t, s, { f, k, s: f.stickers[k], el: s });
+    s.style.visibility = "hidden";
+  }, true);
+  window.addEventListener("pointermove", e => {
+    if (!SD || e.pointerId !== SD.id) return;
+    if (Math.abs(e.clientX - SD.x0) + Math.abs(e.clientY - SD.y0) > 6) SD.moved = true;
+    moveFloat(e.clientX, e.clientY);
+  });
+  function dropSticker(e) {
+    if (!SD || (e && e.pointerId !== SD.id)) return;
+    const d = SD; SD = null;
+    document.body.classList.remove("stk-dragging");
+    try { const sel = window.getSelection(); if (sel) sel.removeAllRanges(); } catch (err) {}
+    document.querySelectorAll("#passes .main.drop").forEach(m => m.classList.remove("drop"));
+    let main = d.moved ? mainUnder(e.clientX, e.clientY) : null;
+    let x = e.clientX, y = e.clientY;
+    if (!d.moved && !d.existing) {           // a tap on the tray: stick it somewhere on the first pass you can see
+      main = Array.from(document.querySelectorAll("#passes .ticket:not(.flipped) .main")).find(m => { const r = m.getBoundingClientRect(); return r.bottom > 80 && r.top < innerHeight - 200; });
+      if (main) { const r = main.getBoundingClientRect(); x = r.left + r.width * (0.2 + Math.random() * 0.6); y = r.top + r.height * (0.25 + Math.random() * 0.5); }
+    }
+    if (!d.moved && d.existing) { d.existing.el.style.visibility = ""; d.fl.remove(); return; }
+    if (main) {
+      const r = main.getBoundingClientRect();
+      const f = state.flights.find(z => z.id === main.closest(".ticket").dataset.id);
+      const rec = { t: d.t, x: +(((x - r.left) / r.width) * 100).toFixed(1), y: +(((y - r.top) / r.height) * 100).toFixed(1), r: parseFloat(d.fl.style.getPropertyValue("--r")) || 0, s: d.existing ? d.existing.s.s : 1 };
+      if (d.existing) d.existing.f.stickers.splice(d.existing.k, 1);
+      (f.stickers = f.stickers || []).push(rec);
+      if ((f.stickers || []).length > 14) f.stickers.shift();
+      d.fl.remove(); slapSound();
+      commit({ quiet: true }); renderPasses();
+      const els = main.closest("#passes") && document.querySelectorAll('#passes .ticket[data-id="' + f.id + '"] .stk');
+      const last = els && els[els.length - 1]; if (last) { last.classList.add("slap"); }
+    } else if (d.existing) {                 // dragged off the pass: peel it away
+      d.existing.f.stickers.splice(d.existing.k, 1);
+      peelSound();
+      d.fl.classList.add("peel"); setTimeout(() => d.fl.remove(), 420);
+      commit({ quiet: true }); renderPasses();
+    } else {
+      d.fl.style.transition = "left .3s, top .3s, opacity .3s, transform .3s";
+      d.fl.style.left = d.from.left + "px"; d.fl.style.top = d.from.top + "px"; d.fl.style.opacity = "0";
+      setTimeout(() => d.fl.remove(), 320);
+    }
+  }
+  window.addEventListener("pointerup", dropSticker);
+  window.addEventListener("pointercancel", dropSticker);
+
+  // ================= PASSPORT =================
+  const STAMP_DEFS = [
+    { id: "dep-SIN", code: "SIN", kind: "dep", page: 0, label: "SINGAPORE" },
+    { id: "arr-CCU", code: "CCU", kind: "arr", page: 1, label: "KOLKATA" },
+    { id: "arr-PAT", code: "PAT", kind: "arr", page: 1, label: "PATNA" }
+  ];
+  let freshStamp = null;
+  function stampDate(ms, zone) { const d = zoned(ms, zone); return pad(d.getUTCDate()) + " " + MONS[d.getUTCMonth()] + " " + d.getUTCFullYear(); }
+  function stampArt(def, at) {
+    const zone = AIRPORTS[def.code].zone, date = stampDate(at, zone);
+    const plane = (rot, x, y, sc) => '<path transform="translate(' + x + " " + y + ") rotate(" + rot + ") scale(" + sc + ')" d="' + PLANE_PATH + '" fill="currentColor"/>';
+    if (def.id === "dep-SIN") return '<svg viewBox="0 0 150 96" class="ink" style="color:#3b47a8"><rect x="4" y="4" width="142" height="88" rx="6" fill="none" stroke="currentColor" stroke-width="3.5"/><rect x="10" y="10" width="130" height="76" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+      '<text x="75" y="30" text-anchor="middle" class="st-s">DEPARTED</text><text x="75" y="56" text-anchor="middle" class="st-b">SINGAPORE</text>' + plane(45, 22, 70, 0.9) + '<text x="80" y="76" text-anchor="middle" class="st-d">' + date + '</text><text x="128" y="76" text-anchor="middle" class="st-s">SIN</text></svg>';
+    if (def.id === "arr-CCU") return '<svg viewBox="0 0 120 120" class="ink" style="color:#b0294a"><circle cx="60" cy="60" r="55" fill="none" stroke="currentColor" stroke-width="3.5"/><circle cx="60" cy="60" r="40" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+      '<defs><path id="ringA" d="M60 60 m-47 0 a47 47 0 1 1 94 0 a47 47 0 1 1 -94 0"/></defs><text class="st-s"><textPath href="#ringA" startOffset="2%">ARRIVED · KOLKATA · ARRIVED · KOLKATA ·</textPath></text>' +
+      '<text x="60" y="58" text-anchor="middle" class="st-b">CCU</text><text x="60" y="76" text-anchor="middle" class="st-d">' + date + "</text>" + plane(135, 60, 32, 0.7) + "</svg>";
+    return '<svg viewBox="0 0 150 100" class="ink" style="color:#2d7a4c"><path d="M30 6 H120 L146 50 L120 94 H30 L4 50 Z" fill="none" stroke="currentColor" stroke-width="3.5"/><path d="M34 13 H116 L138 50 L116 87 H34 L12 50 Z" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+      '<text x="75" y="34" text-anchor="middle" class="st-s">ARRIVAL · BIHAR</text><text x="75" y="60" text-anchor="middle" class="st-b">PATNA</text><text x="75" y="78" text-anchor="middle" class="st-d">' + date + '</text>' + plane(135, 28, 50, 0.65) + plane(135, 122, 50, 0.65) + "</svg>";
+  }
+  function addStamp(id, at) {
+    state.stamps = state.stamps || [];
+    if (state.stamps.some(s => s.id === id)) return false;
+    state.stamps.push({ id, at: at || Date.now(), r: +(Math.random() * 16 - 8).toFixed(1), dx: +(Math.random() * 10 - 5).toFixed(1) });
+    freshStamp = id;
+    commit({ quiet: true });
+    return true;
+  }
+  function autoStamps() {
+    const now = Date.now();
+    let added = false;
+    const L1 = state.flights[0], L2 = state.flights[1], t1 = legTimes(L1), t2 = legTimes(L2);
+    if (L1.torn) added = addStamp("dep-SIN", L1.tornAt || now) || added;
+    else if (t1 && now > t1.dep) added = addStamp("dep-SIN", t1.dep) || added;
+    if (t1 && now > t1.arr) added = addStamp("arr-CCU", t1.arr) || added;
+    if (t2 && now > t2.arr) added = addStamp("arr-PAT", t2.arr) || added;
+    return added;
+  }
+  function renderPassport() {
+    const stamps = state.stamps || [];
+    const page = p => STAMP_DEFS.filter(d => d.page === p).map(def => {
+      const s = stamps.find(x => x.id === def.id);
+      if (!s) return '<button class="st-slot" data-stamp="' + def.id + '"><span>' + def.label + "</span><small>" + (def.kind === "dep" ? "Tear your stub, or tap to stamp" : "Stamps itself when you land, or tap") + "</small></button>";
+      return '<div class="st-wrap' + (freshStamp === def.id ? " fresh" : "") + '" style="--r:' + s.r + "deg;--dx:" + s.dx + 'px"><span class="rubber" aria-hidden="true"></span>' + stampArt(def, s.at) + "</div>";
+    }).join("");
+    $("ppLeft").innerHTML = page(0);
+    $("ppRight").innerHTML = page(1);
+    $("ppCount").textContent = stamps.length + " OF " + STAMP_DEFS.length + " STAMPS";
+    if (freshStamp) { setTimeout(stampSound, 330); freshStamp = null; }
+  }
+  $("passport").addEventListener("click", e => {
+    const b = e.target.closest("[data-stamp]"); if (!b) return;
+    audio(); addStamp(b.dataset.stamp); renderPassport();
+  });
+
+  // ================= WINDOW SEAT VIEW =================
+  let winSide = null, shade = 0.18, winTimer = null, SH = null;
+  function openWindow() {
+    const P = currentPos(Date.now());
+    const s = seatSide(P.leg.seat);
+    if (!winSide) winSide = s === "right" ? "right" : "left";
+    $("win").classList.add("on");
+    document.body.classList.add("overlay-open");
+    audio();
+    renderWindowView();
+    clearInterval(winTimer); winTimer = setInterval(renderWindowView, 15000);
+    if (curTab === "flight") resumeGPS();
+  }
+  function closeWindow() { $("win").classList.remove("on"); document.body.classList.remove("overlay-open"); clearInterval(winTimer); }
+  function renderWindowView() {
+    const now = Date.now(), P = currentPos(now), t = legTimes(P.leg);
+    const when = P.src === "preview" && t ? t.dep + P.prog * P.leg.dur * 60000 : now;
+    const sun = sunPos(when, P.lat, P.lon);
+    const sky = sun.elev < -8 ? "night" : sun.elev < 0 ? "dusk" : sun.elev < 10 ? "golden" : "day";
+    const over = whereLabel(P.lat, P.lon);
+    const sea = /the (Bay|Andaman|Strait|Gulf|Indian|Singapore)/.test(over);
+    const pane = $("winPane");
+    pane.className = "win-pane " + sky + (sea ? " sea" : " land") + " side-" + winSide + (P.src === "gps" && (P.spd || 0) < 15 ? " ground" : "");
+    // is the sun on this side of the plane, and how high?
+    const rel = ((sun.az - (P.hdg || 0) + 540) % 360) - 180;
+    const sideRel = winSide === "left" ? -rel : rel;          // 90 = straight out of this window
+    const sunEl = $("winSun");
+    if (sun.elev > -4 && sideRel > 15 && sideRel < 165) {
+      sunEl.style.display = "";
+      sunEl.style.left = (20 + (sideRel - 15) / 150 * 60) + "%";
+      sunEl.style.top = Math.max(8, 62 - sun.elev * 1.6) + "%";
+      sunEl.className = "win-sun" + (sun.elev < 6 ? " low" : "");
+    } else sunEl.style.display = "none";
+    $("winSideL").setAttribute("aria-pressed", winSide === "left");
+    $("winSideR").setAttribute("aria-pressed", winSide === "right");
+    $("winOver").textContent = cap(over);
+    // what's out there on this side
+    const here = { lat: P.lat, lon: P.lon }, list = [];
+    for (const [n, lat, lon, rng] of MAP ? MAP.pois : []) {
+      const d = dist(here, { lat, lon }); if (d < 4 || d > (rng || 230)) continue;
+      const r = ((bearing(here, { lat, lon }) - (P.hdg || 0) + 540) % 360) - 180;
+      if (winSide === "left" ? (r <= -20 && r >= -160) : (r >= 20 && r <= 160)) list.push({ n, d });
+    }
+    list.sort((a, b) => a.d - b.d);
+    $("winList").innerHTML = list.length ? list.slice(0, 4).map(x => "<li><b>" + esc(x.n) + "</b><span>" + fmtInt(x.d) + " km</span></li>").join("") : "<li><b>" + (sea ? "Open sea, all the way to the horizon" : "Nothing big out this side right now") + "</b></li>";
+    const mine = seatSide(P.leg.seat);
+    $("winNote").textContent = (mine === "left" || mine === "right") ? (mine === winSide ? "This is your side (seat " + P.leg.seat.toUpperCase() + ")." : "Your seat " + P.leg.seat.toUpperCase() + " is on the " + mine + ".") : "Pick the side you're sitting on.";
+    $("winSrc").textContent = P.src === "gps" ? "LIVE GPS" : P.src === "est" ? "ESTIMATE" : "PREVIEW";
+    applyShade();
+  }
+  function applyShade() {
+    $("winShade").style.height = (shade * 100).toFixed(1) + "%";
+    $("win").style.setProperty("--light", (1 - shade * 0.55).toFixed(3));
+  }
+  function slideSound(v) {
+    const a = audio(); if (!a || v < 0.02) return;
+    burst(0.05, 900 + v * 1800, 1.4, Math.min(0.35, v * 0.9));
+  }
+  const clickSound = () => burst(0.025, 2400, 2, 0.5);
+  $("winPane").addEventListener("pointerdown", e => {
+    const r = $("winPane").getBoundingClientRect();
+    SH = { id: e.pointerId, y0: e.clientY, s0: shade, h: r.height, lastY: e.clientY, lastT: performance.now(), v: 0, acc: 0 };
+    try { $("winPane").setPointerCapture(e.pointerId); } catch (err) {}
+    $("winShade").classList.add("drag");
+  });
+  $("winPane").addEventListener("pointermove", e => {
+    if (!SH || e.pointerId !== SH.id) return;
+    const now = performance.now();
+    shade = Math.max(0, Math.min(1, SH.s0 + (e.clientY - SH.y0) / (SH.h * 0.92)));
+    SH.v = (e.clientY - SH.lastY) / Math.max(8, now - SH.lastT);
+    SH.acc += Math.abs(e.clientY - SH.lastY);
+    if (SH.acc > 10) { slideSound(Math.min(1, Math.abs(SH.v))); SH.acc = 0; }
+    SH.lastY = e.clientY; SH.lastT = now;
+    applyShade();
+  });
+  function endShade(e) {
+    if (!SH || (e && e.pointerId !== SH.id)) return;
+    const v = SH.v; SH = null;
+    $("winShade").classList.remove("drag");
+    // a flick sends it all the way, like the real thing
+    let target = shade;
+    if (v > 0.6) target = 1; else if (v < -0.6) target = 0;
+    else if (shade < 0.06) target = 0; else if (shade > 0.94) target = 1;
+    if (target !== shade) {
+      const from = shade, t0 = performance.now();
+      (function go(now) {
+        const k = Math.min(1, (now - t0) / 260), e2 = 1 - Math.pow(1 - k, 3);
+        shade = from + (target - from) * e2; applyShade();
+        if (k < 1) requestAnimationFrame(go); else clickSound();
+      })(t0);
+      slideSound(0.8);
+    } else if (shade === 0 || shade === 1) clickSound();
+  }
+  $("winPane").addEventListener("pointerup", endShade);
+  $("winPane").addEventListener("pointercancel", endShade);
+  $("winSideL").addEventListener("click", () => { winSide = "left"; renderWindowView(); });
+  $("winSideR").addEventListener("click", () => { winSide = "right"; renderWindowView(); });
+  $("winClose").addEventListener("click", closeWindow);
+  $("porthole").addEventListener("click", openWindow);
+  $("openWindow").addEventListener("click", openWindow);
+
+  // ================= SEATBACK SCREEN =================
+  let ifeIdx = 0, ifeTimer = null, ifeTick = null;
+  const IFE_PANES = ["map", "data", "times", "window"];
+  function openIFE() {
+    $("ife").classList.add("on"); document.body.classList.add("overlay-open");
+    ifeIdx = 0; renderIFE(true);
+    clearInterval(ifeTimer); ifeTimer = setInterval(() => { ifeIdx = (ifeIdx + 1) % IFE_PANES.length; renderIFE(true); }, 9000);
+    clearInterval(ifeTick); ifeTick = setInterval(() => renderIFE(false), 3000);
+    if (curTab === "flight") resumeGPS();
+  }
+  function closeIFE() { $("ife").classList.remove("on"); document.body.classList.remove("overlay-open"); clearInterval(ifeTimer); clearInterval(ifeTick); }
+  function isaTemp(altM) { return altM == null ? null : Math.max(-56.5, 15 - 6.5 * altM / 1000); }
+  function renderIFE(swap) {
+    if (!MAP) return;
+    const now = Date.now(), P = currentPos(now), f = P.leg, A = AIRPORTS[f.from], B = AIRPORTS[f.to], t = legTimes(f);
+    let left;
+    if (P.src === "gps") left = (P.spd || 0) > 40 ? P.toGo * 1000 / P.spd / 60 : (t && now < t.arr ? (t.arr - Math.max(now, t.dep)) / 60000 : null);
+    else left = (1 - P.prog) * f.dur;
+    const eta = left != null ? now + left * 60000 : (t ? t.arr : null);
+    const alt = P.alt != null ? P.alt : (P.src !== "preview" || P.prog > 0.08 && P.prog < 0.9 ? 11000 : null);
+    const altEst = P.alt == null;
+    $("ifeHead").innerHTML = "<b>FLIGHT DECK AIR</b><span>" + esc(f.no ? f.no.toUpperCase() + " · " : "") + f.from + " → " + f.to + "</span>";
+    const pane = IFE_PANES[ifeIdx];
+    let html = "";
+    if (pane === "map") {
+      const [px, py] = proj(P.lon, P.lat);
+      const done = polyPts(A, B, 0, Math.max(0.001, P.prog), 40), all = polyPts(A, B, 0, 1, 40);
+      const lands = MAP.lands.map(l => '<path d="' + l.d + '"/>').join("");
+      const labels = MAP.labels.map(([n, x, y]) => '<text x="' + (x + 4) + '" y="' + (y + 3) + '">' + n + "</text>").join("");
+      const ap = [A, B].map((a, k) => { const [x, y] = proj(a.lon, a.lat); return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="4" class="i-ap"/><text class="i-apl" x="' + (x + (k ? -8 : 8)).toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="' + (k ? "end" : "start") + '">' + (k ? f.to : f.from) + "</text>"; }).join("");
+      html = '<div class="ife-map"><svg id="ifeSvg" data-px="' + px.toFixed(1) + '" data-py="' + py.toFixed(1) + '" viewBox="0 0 400 430" preserveAspectRatio="xMidYMid meet"><g class="i-land">' + lands + '</g><g class="i-lbl">' + labels + '</g><polyline class="i-all" points="' + all + '"/><polyline class="i-done" points="' + done + '"/>' + ap +
+        '<g transform="translate(' + px.toFixed(1) + "," + py.toFixed(1) + ") rotate(" + (P.hdg || 0).toFixed(0) + ') scale(1.5)"><path class="i-plane" d="' + PLANE_PATH + '"/></g></svg>' +
+        '<div class="ife-strip"><div><small>TIME TO DESTINATION</small><b>' + (left != null ? dur(left) : "—") + '</b></div><div><small>DISTANCE TO GO</small><b>' + fmtInt(P.toGo) + ' km</b></div><div><small>GROUND SPEED</small><b>' + (P.spd ? fmtInt(P.spd * 3.6) : "—") + " km/h</b></div></div></div>";
+    } else if (pane === "data") {
+      const temp = isaTemp(alt);
+      html = '<div class="ife-grid">' +
+        '<div><small>ALTITUDE</small><b>' + (alt != null ? fmtInt(alt * 3.28084) : "—") + "<em>ft</em></b><span>" + (alt != null ? fmtInt(alt) + " m" + (altEst ? " · typical cruise" : "") : "") + "</span></div>" +
+        '<div><small>GROUND SPEED</small><b>' + (P.spd ? fmtInt(P.spd * 3.6) : "—") + "<em>km/h</em></b><span>" + (P.spd ? fmtInt(P.spd * 1.94384) + " knots" : "") + "</span></div>" +
+        '<div><small>OUTSIDE AIR TEMP</small><b>' + (temp != null ? Math.round(temp) : "—") + "<em>°C</em></b><span>estimated</span></div>" +
+        '<div><small>HEADING</small><b>' + (P.hdg != null ? Math.round(P.hdg) : "—") + "<em>°</em></b><span>" + (P.hdg != null ? compass(P.hdg) : "") + "</span></div>" +
+        '<div class="wide"><small>NOW OVER</small><b class="sm">' + esc(cap(whereLabel(P.lat, P.lon))) + "</b></div></div>";
+    } else if (pane === "times") {
+      html = '<div class="ife-times">' +
+        '<div><small>TIME IN ' + A.city + '</small><b>' + hhmm(now, A.zone) + "</b><span>" + dayKey(now, A.zone) + "</span></div>" +
+        '<div><small>TIME IN ' + B.city + '</small><b>' + hhmm(now, B.zone) + "</b><span>" + dayKey(now, B.zone) + "</span></div>" +
+        '<div class="wide"><small>ESTIMATED ARRIVAL · ' + B.city + "</small><b>" + (eta ? hhmm(eta, B.zone) : "--:--") + '</b><div class="ife-prog"><i style="width:' + (P.prog * 100).toFixed(1) + '%"></i></div><span>' + Math.round(P.prog * 100) + "% of the way</span></div></div>";
+    } else {
+      const here = { lat: P.lat, lon: P.lon }, L = [], R = [];
+      for (const [n, lat, lon, rng] of MAP.pois) {
+        const d = dist(here, { lat, lon }); if (d < 4 || d > (rng || 230)) continue;
+        const r = ((bearing(here, { lat, lon }) - (P.hdg || 0) + 540) % 360) - 180;
+        if (r <= -20 && r >= -160) L.push({ n, d }); else if (r >= 20 && r <= 160) R.push({ n, d });
+      }
+      L.sort((a, b) => a.d - b.d); R.sort((a, b) => a.d - b.d);
+      const col = (name, arr) => "<div><small>" + name + " SIDE</small>" + (arr.length ? arr.slice(0, 3).map(x => "<p><b>" + esc(x.n) + "</b> " + fmtInt(x.d) + " km</p>").join("") : "<p>Open sky</p>") + "</div>";
+      html = '<div class="ife-win">' + col("LEFT", L) + col("RIGHT", R) + "</div>";
+    }
+    const body = $("ifeBody");
+    if (swap) { body.classList.remove("in"); void body.offsetWidth; body.classList.add("in"); }
+    body.innerHTML = html;
+    const isvg = $("ifeSvg");
+    if (isvg) {
+      const r = isvg.getBoundingClientRect(), vw = 250, vh = r.width ? vw * r.height / r.width : 300;
+      const cx = +isvg.dataset.px, cy = +isvg.dataset.py;
+      isvg.setAttribute("viewBox", (cx - vw / 2).toFixed(1) + " " + (cy - vh * 0.52).toFixed(1) + " " + vw + " " + vh.toFixed(1));
+    }
+    $("ifeDots").innerHTML = IFE_PANES.map((p, k) => "<i" + (k === ifeIdx ? ' class="on"' : "") + "></i>").join("");
+    $("ifeSrc").textContent = P.src === "gps" ? "LIVE GPS" : P.src === "est" ? "ESTIMATED POSITION" : "PREVIEW";
+  }
+  $("ifeBody").addEventListener("click", () => { ifeIdx = (ifeIdx + 1) % IFE_PANES.length; renderIFE(true); clearInterval(ifeTimer); ifeTimer = setInterval(() => { ifeIdx = (ifeIdx + 1) % IFE_PANES.length; renderIFE(true); }, 9000); });
+  $("ifeClose").addEventListener("click", closeIFE);
+  $("openIFE").addEventListener("click", openIFE);
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { closeIFE(); closeWindow(); } });
 
   // first visit: the first untorn stub gives a little wiggle so you know it moves
   let hinted = false;
