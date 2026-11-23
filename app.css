@@ -65,34 +65,45 @@ main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16
 
 /* Tickets */
 #passes { display: flex; flex-direction: column; gap: 12px; }
-.ticket { position: relative; perspective: 1400px; animation: riseIn .5s var(--ease) both; animation-delay: calc(var(--i, 0) * 90ms); }
+.ticket { position: relative; animation: riseIn .5s var(--ease) both; animation-delay: calc(var(--i, 0) * 90ms); }
 @keyframes riseIn { from { opacity: 0; transform: translateY(18px) rotate(-1deg); } }
-.flipper { position: relative; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.3, 1.3, .4, 1); }
-.ticket.flipped .flipper { transform: rotateY(180deg); }
-.face { -webkit-backface-visibility: hidden; backface-visibility: hidden; border-radius: 10px; }
-.front { display: grid; grid-template-columns: 1fr 104px; background: var(--ticket); box-shadow: var(--shadow); position: relative; }
-.back { position: absolute; inset: 0; transform: rotateY(180deg); background: var(--ticket); box-shadow: var(--shadow); padding: 14px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; cursor: pointer; }
-.ticket .main { padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; cursor: pointer; position: relative; }
-.ticket .stub { border-left: 2px dashed var(--rule); padding: 14px 10px 12px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 6px; background: var(--ticket); border-radius: 0 10px 10px 0; touch-action: pan-y; user-select: none; -webkit-user-select: none; transform-origin: 0% 100%; cursor: grab; }
-.ticket .stub::before, .ticket .stub::after { content: ""; position: absolute; left: -10px; width: 18px; height: 18px; border-radius: 50%; background: var(--paper); }
-.ticket .stub::before { top: -9px; box-shadow: inset 0 -2px 3px rgba(30, 35, 49, 0.08); }
-.ticket .stub::after { bottom: -9px; box-shadow: inset 0 2px 3px rgba(30, 35, 49, 0.08); }
-.stub.dragging { box-shadow: 6px 8px 18px -8px rgba(30, 35, 49, .45); cursor: grabbing; }
-.stub.fly { animation: flyOff .42s cubic-bezier(.4, 0, .8, .6) forwards; }
-@keyframes flyOff { to { transform: translate(180px, 90px) rotate(32deg); opacity: 0; } }
-.stub.nudge { animation: nudge .5s ease; }
-@keyframes nudge { 30% { transform: translateX(10px) rotate(1.5deg); } 60% { transform: translateX(3px); } }
+.ticket.tearing { z-index: 20; }
+.flipper { position: relative; transform-origin: 50% 50%; }
+.front { display: grid; grid-template-columns: 1fr 104px; position: relative; filter: drop-shadow(0 1px 0 rgba(30, 35, 49, .06)) drop-shadow(0 6px 8px rgba(30, 35, 49, .16)); }
+.ticket.flipped .front { display: none; }
+.back { display: none; background: var(--ticket); border-radius: 10px; box-shadow: var(--shadow); padding: 14px; flex-direction: column; gap: 8px; cursor: pointer; }
+.ticket.flipped .back { display: flex; }
+.ticket .main { background: var(--ticket); border-radius: 10px 0 0 10px; padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; cursor: pointer; position: relative;
+  -webkit-mask: radial-gradient(circle at 100% 0, transparent 9px, #000 9.5px) top / 100% 51% no-repeat, radial-gradient(circle at 100% 100%, transparent 9px, #000 9.5px) bottom / 100% 51% no-repeat;
+  mask: radial-gradient(circle at 100% 0, transparent 9px, #000 9.5px) top / 100% 51% no-repeat, radial-gradient(circle at 100% 100%, transparent 9px, #000 9.5px) bottom / 100% 51% no-repeat; }
+.ticket .stub { background: var(--ticket); border-radius: 0 10px 10px 0; border-left: 2px dashed #cfc4ad; padding: 14px 10px 12px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 6px;
+  touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: grab;
+  -webkit-mask: radial-gradient(circle at 0 0, transparent 9px, #000 9.5px) top / 100% 51% no-repeat, radial-gradient(circle at 0 100%, transparent 9px, #000 9.5px) bottom / 100% 51% no-repeat;
+  mask: radial-gradient(circle at 0 0, transparent 9px, #000 9.5px) top / 100% 51% no-repeat, radial-gradient(circle at 0 100%, transparent 9px, #000 9.5px) bottom / 100% 51% no-repeat; }
+.ticket .stub.piece { position: absolute; top: 0; z-index: 3; will-change: transform; pointer-events: none; }
+.ticket .stub.flying { position: fixed; z-index: 50; margin: 0; }
+.ticket.torn .front > .stub:not(.piece) { visibility: hidden; }
+.stub.nudge { animation: nudge .7s cubic-bezier(.3, 1.4, .5, 1); transform-origin: 0 100%; }
+@keyframes nudge { 35% { transform: rotate(4deg); } 65% { transform: rotate(-.6deg); } }
 .tear-hint { font-size: 8.5px; letter-spacing: 0.12em; color: var(--muted); font-weight: 700; }
-.ticket.torn .front { background: transparent; box-shadow: none; }
-.ticket.torn .main { background: var(--ticket); border-radius: 10px 0 0 10px; box-shadow: var(--shadow); }
-.ticket.torn .main::after { content: ""; position: absolute; top: 0; bottom: 0; right: -6px; width: 7px;
-  background: linear-gradient(-135deg, var(--ticket) 4px, transparent 0) 0 4px, linear-gradient(-45deg, var(--ticket) 4px, transparent 0) 0 4px;
-  background-size: 7px 8px; background-repeat: repeat-y; }
-.ticket.torn .stub { visibility: hidden; }
-.boarded { position: absolute; right: 10px; bottom: 10px; font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: 0.1em; color: var(--red); border: 3px solid var(--red); border-radius: 6px; padding: 2px 10px; transform: rotate(-12deg); opacity: .9; pointer-events: none; mix-blend-mode: multiply; }
-.boarded.thunk { animation: bigThunkB .45s cubic-bezier(.2, 1.6, .4, 1) .3s both; }
-@keyframes bigThunkB { from { transform: rotate(-12deg) scale(2); opacity: 0; } }
-.tape { position: absolute; right: 8px; top: 50%; transform: translateY(-50%) rotate(-3deg); width: 88px; border: 0; background: rgba(255, 240, 180, .85); font-size: 12px; font-weight: 700; padding: 8px 4px; border-radius: 2px; box-shadow: 0 2px 6px -3px rgba(0,0,0,.4); color: var(--ink); }
+.boarded { position: absolute; right: 10px; bottom: 10px; font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: 0.1em; color: var(--red); border: 3px solid var(--red); border-radius: 6px; padding: 2px 10px; transform: rotate(-12deg); opacity: .88; pointer-events: none; mix-blend-mode: multiply; }
+.boarded.thunk { animation: bigThunkB .45s cubic-bezier(.2, 1.6, .4, 1) .15s both; }
+@keyframes bigThunkB { from { transform: rotate(-12deg) scale(2.2); opacity: 0; } }
+
+/* Stub pocket */
+.pocket-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; padding: 4px 4px 2px; min-height: 128px; }
+.mini { width: 62px; height: 124px; border: 0; padding: 9px 4px 7px 7px; background: var(--ticket); border-radius: 0 6px 6px 0; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 2px;
+  transform: rotate(var(--r, 0deg)); filter: drop-shadow(0 4px 5px rgba(30, 35, 49, .22)); transition: transform .25s var(--ease); position: relative; }
+.mini .code { font-family: var(--font-display); font-weight: 700; font-size: 15px; line-height: 1; }
+.mini .m-fl { font-family: var(--font-data); font-size: 9.5px; color: var(--ink); }
+.mini .m-k { font-size: 7.5px; letter-spacing: .12em; color: var(--muted); font-weight: 700; }
+.mini .barcode { width: 46px; height: 16px; }
+.mini.land { animation: land .45s cubic-bezier(.2, 1.5, .4, 1); }
+@keyframes land { from { transform: rotate(var(--r)) translateY(-10px) scale(1.08); } }
+.mini.armed { transform: rotate(0deg) translateY(-6px); }
+.mini-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.mini-wrap small { font-size: 10px; font-weight: 700; color: var(--red); letter-spacing: .04em; min-height: 13px; text-align: center; max-width: 80px; line-height: 1.2; }
+.slot { width: 62px; height: 124px; border: 2px dashed var(--rule); border-radius: 6px; display: grid; place-items: center; text-align: center; font-size: 9.5px; letter-spacing: .1em; font-weight: 700; color: #b3a890; padding: 6px; }
 .fine { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
 .fine.tiny { font-size: 10px; letter-spacing: 0.06em; }
 .back-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: auto; }

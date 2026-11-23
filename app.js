@@ -45,7 +45,7 @@
     const out = { v: 2, updatedAt: +s.updatedAt || 0 };
     out.flights = d.flights.map(f => {
       const g = Array.isArray(s.flights) ? s.flights.find(x => x && x.id === f.id) : null;
-      return g ? { ...f, no: String(g.no || ""), dep: String(g.dep || ""), dur: Math.max(10, +g.dur || f.dur), seat: String(g.seat || ""), gate: String(g.gate || ""), torn: !!g.torn } : f;
+      return g ? { ...f, no: String(g.no || ""), dep: String(g.dep || ""), dur: Math.max(10, +g.dur || f.dur), seat: String(g.seat || ""), gate: String(g.gate || ""), torn: !!g.torn, tornAt: +g.tornAt || 0, tear: g.tear && typeof g.tear.p === "number" ? { p: Math.max(0, Math.min(0.97, g.tear.p)), dir: g.tear.dir === "bottom" ? "bottom" : "top" } : null } : f;
     });
     out.checklist = Array.isArray(s.checklist) ? s.checklist.filter(c => c && c.id).map(c => ({ id: String(c.id), sec: String(c.sec || "OTHER"), label: String(c.label || ""), done: !!c.done })) : d.checklist;
     return out;
@@ -279,13 +279,16 @@
     if (now < t.arr) return { txt: "IN THE AIR", cls: "blue" };
     return { txt: "LANDED", cls: "ok", past: true };
   }
-  function barcode(seed) {
+  function seeded(str) {
     let h = 2166136261;
-    for (const ch of seed) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
-    const rnd = () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return (h >>> 0) / 4294967296; };
+    for (const ch of str) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+    return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return (h >>> 0) / 4294967296; };
+  }
+  function barcode(seed) {
+    const rnd = seeded(seed);
     let x = 0, r = "";
     while (x < 82) { const w = 1 + Math.floor(rnd() * 3); r += '<rect x="' + x + '" y="0" width="' + w + '" height="28"/>'; x += w + 1 + Math.floor(rnd() * 2.2); }
-    return '<svg class="barcode" viewBox="0 0 84 28" aria-hidden="true">' + r + "</svg>";
+    return '<svg class="barcode" viewBox="0 0 84 28" preserveAspectRatio="none" aria-hidden="true">' + r + "</svg>";
   }
   function seatSide(seat) {
     const m = /([A-Za-z])\s*$/.exec(seat || ""); if (!m) return null;
@@ -296,7 +299,7 @@
   }
   function seatMap(seat) {
     const m = /^\s*(\d{1,3})\s*([A-Za-z])\s*$/.exec(seat || "");
-    if (!m) return '<p class="fine">Add your seat (like 23A) in Edit flight and you\'ll see where you\'re sitting.</p>';
+    if (!m) return '<p class="fine">Add your seat (like 23A) with Edit flights below and you\'ll see where you\'re sitting.</p>';
     const row = +m[1], L = m[2].toUpperCase();
     const groups = "ABCDEF".includes(L) ? [["A", "B", "C"], ["D", "E", "F"]] : [["A", "B", "C"], ["D", "E", "F", "G"], ["H", "J", "K"]];
     let html = '<div class="seatmap"><div class="sm-win">WINDOW</div><div class="sm-rows">';
@@ -306,127 +309,403 @@
     return html + '</div><div class="sm-win">WINDOW</div></div>';
   }
   const fld = (label, val) => '<div class="fld"><small>' + label + "</small><b>" + esc(val) + "</b></div>";
+  const fmtDate = (f) => { const t = legTimes(f); if (!t) return "TBC"; const d = zoned(t.dep, AIRPORTS[f.from].zone); return d.getUTCDate() + " " + MONS[d.getUTCMonth()]; };
+  function stubInner(f) {
+    const st = flightStatus(f, Date.now()), side = seatSide(f.seat);
+    return fld("GATE", f.gate ? f.gate.toUpperCase() : "—") + fld("SEAT", f.seat ? f.seat.toUpperCase() : "—") +
+      (side === "left" || side === "right" ? '<span class="side">WINDOW · ' + side.toUpperCase() + "</span>" : "") +
+      '<div class="stamp ' + st.cls + '">' + st.txt + "</div>" + barcode(f.from + f.to + (f.no || "") + (f.dep || "")) +
+      '<span class="tear-hint">PULL TO TEAR ›</span>';
+  }
   const stampSeen = new Map();
-  let passesAnimated = false;
+  let passesAnimated = false, landId = null, boardedThunk = null;
   function renderPasses() {
     const now = Date.now();
     let html = "", i = 0;
     const t1 = legTimes(state.flights[0]), t2 = legTimes(state.flights[1]);
     state.flights.forEach((f, idx) => {
       const A = AIRPORTS[f.from], B = AIRPORTS[f.to], t = legTimes(f), st = flightStatus(f, now);
-      const date = t ? (() => { const d = zoned(t.dep, A.zone); return d.getUTCDate() + " " + MONS[d.getUTCMonth()]; })() : "TBC";
       const side = seatSide(f.seat);
-      const key = f.id + (f.torn ? "t" : "") + st.txt;
-      const thunk = stampSeen.get(f.id) !== key;
-      stampSeen.set(f.id, key);
       html += '<div class="ticket' + (st.past ? " past" : "") + (f.torn ? " torn" : "") + '" data-id="' + f.id + '" style="--i:' + (i++) + (passesAnimated ? ";animation:none" : "") + '">' +
         '<div class="flipper">' +
-        '<div class="face front">' +
-          '<div class="main" tabindex="0" role="button" aria-label="Flip pass">' +
+        '<div class="front">' +
+          '<div class="main" tabindex="0" role="button" aria-label="Flip pass to see your seat">' +
             '<div class="tk-top"><span>BOARDING PASS</span><span class="red">LEG ' + (idx + 1) + " OF " + state.flights.length + "</span></div>" +
             '<div class="route"><div><span class="code">' + f.from + '</span><span class="city">' + A.city + "</span></div>" +
             '<div class="path"><svg viewBox="-12 -12 24 24" aria-hidden="true"><path d="' + PLANE_PATH + '"/></svg></div>' +
             '<div class="end"><span class="code">' + f.to + '</span><span class="city">' + B.city + "</span></div></div>" +
-            '<div class="fields">' + fld("DATE", date) + fld("DEPARTS", t ? hhmm(t.dep, A.zone) : "--:--") + fld("LANDS", t ? hhmm(t.arr, B.zone) : "--:--") +
+            '<div class="fields">' + fld("DATE", fmtDate(f)) + fld("DEPARTS", t ? hhmm(t.dep, A.zone) : "--:--") + fld("LANDS", t ? hhmm(t.arr, B.zone) : "--:--") +
             fld("FLIGHT", f.no ? f.no.toUpperCase() : "—") + fld("LENGTH", durWords(f.dur)) + fld("KM", fmtInt(legLen(f))) + "</div>" +
-            (f.torn ? '<div class="boarded' + (thunk ? " thunk" : "") + '">BOARDED</div>' : "") +
+            (f.torn ? '<div class="boarded' + (boardedThunk === f.id ? " thunk" : "") + '">BOARDED</div>' : "") +
           "</div>" +
-          '<div class="stub" title="Drag right to tear">' + fld("GATE", f.gate ? f.gate.toUpperCase() : "—") + fld("SEAT", f.seat ? f.seat.toUpperCase() : "—") +
-            (side === "left" || side === "right" ? '<span class="side">WINDOW · ' + side.toUpperCase() + "</span>" : "") +
-            '<div class="stamp ' + st.cls + (thunk && !f.torn ? " thunk" : "") + '">' + st.txt + "</div>" + barcode(f.from + f.to + (f.no || "") + (f.dep || "")) +
-            '<span class="tear-hint">PULL TO TEAR ›</span>' +
-          "</div>" +
-          (f.torn ? '<button class="tape" data-tape="' + f.id + '">Tape it back</button>' : "") +
+          '<div class="stub" aria-label="Boarding pass stub. Drag right to tear it off.">' + stubInner(f) + "</div>" +
         "</div>" +
-        '<div class="face back" tabindex="0" role="button" aria-label="Flip pass back">' +
+        '<div class="back" tabindex="0" role="button" aria-label="Flip pass back">' +
           '<div class="tk-top"><span>SEAT MAP · TYPICAL LAYOUT</span><span class="red">' + f.from + " → " + f.to + "</span></div>" +
           seatMap(f.seat) +
-          '<p class="fine">' + (side === "left" || side === "right" ? "Window on your " + side + ". " : "") + "Layouts differ between planes, so check when you board.</p>" +
-          '<div class="back-row"><button class="btn sm" data-edit="1">Edit flight</button><span class="fine tiny">Not valid for travel · Flight Deck Air</span></div>' +
+          '<p class="fine">' + (side === "left" || side === "right" ? "Window on your " + side + ". " : "") + "Layouts differ between planes, so check when you board. Tap to flip back.</p>" +
+          '<p class="fine tiny" style="margin-top:auto">NOT VALID FOR TRAVEL · FLIGHT DECK AIR</p>' +
         "</div>" +
         "</div></div>";
       if (idx === 0 && t1 && t2 && t2.dep > t1.arr) html += '<div class="layover"' + (passesAnimated ? ' style="animation:none"' : "") + ">LAYOVER · <b>" + durWords((t2.dep - t1.arr) / 60000) + "</b> IN KOLKATA</div>";
     });
     $("passes").innerHTML = html;
-    passesAnimated = true;
+    renderPocket();
+    passesAnimated = true; boardedThunk = null;
+    requestAnimationFrame(applyStaticTears);
   }
 
-  // ---- sounds (made in code, no files) ----
-  let actx = null;
-  function audio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume(); return actx; } catch (e) { return null; } }
-  function ripSound() {
-    const a = audio(); if (!a) return;
-    const dur = 0.34, n = Math.floor(a.sampleRate * dur), buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
-    for (let i = 0; i < n; i++) { const t = i / n; const crack = Math.random() < 0.09 ? 1 : 0.22; d[i] = (Math.random() * 2 - 1) * crack * Math.pow(1 - t, 1.4) * Math.min(1, t * 25); }
-    const src = a.createBufferSource(); src.buffer = buf;
-    const bp = a.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 2600; bp.Q.value = 0.6;
-    const g = a.createGain(); g.gain.value = 0.7;
-    src.connect(bp); bp.connect(g); g.connect(a.destination); src.start();
+  // live status updates without rebuilding the passes (keeps flips and tears intact)
+  function refreshStamps() {
+    const now = Date.now();
+    document.querySelectorAll("#passes .ticket").forEach(tk => {
+      const f = state.flights.find(x => x.id === tk.dataset.id); if (!f) return;
+      const st = flightStatus(f, now);
+      tk.classList.toggle("past", !!st.past);
+      tk.querySelectorAll(".stub .stamp").forEach(el => { if (el.textContent !== st.txt) { el.textContent = st.txt; el.className = "stamp " + st.cls + " thunk"; } });
+    });
   }
-  function thunkSound() {
+
+  // ---------- stub pocket ----------
+  function jagPct(seed) {
+    const rnd = seeded(seed), pts = ["100% 0%"];
+    for (let y = 0; y <= 100; y += 2.5) pts.push((rnd() * 7 + (y % 5 === 0 ? 5 : 1)).toFixed(1) + "% " + y + "%");
+    pts.push("100% 100%");
+    return "polygon(" + pts.join(",") + ")";
+  }
+  let armedMini = null;
+  function renderPocket() {
+    const torn = state.flights.filter(f => f.torn).sort((a, b) => (a.tornAt || 0) - (b.tornAt || 0));
+    const left = state.flights.length - torn.length;
+    $("pocketCount").textContent = torn.length ? torn.length + " COLLECTED" : "EMPTY";
+    $("pocketRow").innerHTML = torn.map((f, k) =>
+      '<div class="mini-wrap"><button class="mini' + (landId === f.id ? " land" : "") + (armedMini === f.id ? " armed" : "") + '" data-mini="' + f.id + '" style="--r:' + (k % 2 ? 4 : -5) + "deg;clip-path:" + jagPct(f.id + "mini") + '" aria-label="Stub ' + f.from + " to " + f.to + '. Tap twice to tape it back.">' +
+        '<span class="m-k">' + f.from + "→" + f.to + '</span><span class="code">' + (f.seat ? esc(f.seat.toUpperCase()) : "—") + '</span><span class="m-k">SEAT</span>' +
+        '<span class="m-fl">' + esc(f.no ? f.no.toUpperCase() : "") + '</span><span class="m-k">' + fmtDate(f) + "</span>" + barcode(f.id + (f.no || "")) + "</button>" +
+        "<small>" + (armedMini === f.id ? "Tap again to tape it back" : "") + "</small></div>").join("") +
+      (left ? '<div class="mini-wrap"><div class="slot" id="pocketSlot">TEAR A STUB, IT LANDS HERE</div><small></small></div>' : "");
+    $("pocketNote").textContent = torn.length ? "Souvenirs from your trip. Tap a stub twice to tape it back onto its pass." : "When you board, tear the stub off your pass and keep it here.";
+    landId = null;
+  }
+  $("pocketRow").addEventListener("click", e => {
+    const m = e.target.closest("[data-mini]"); if (!m) return;
+    const id = m.dataset.mini;
+    if (armedMini !== id) { armedMini = id; renderPocket(); clearTimeout(renderPocket.t); renderPocket.t = setTimeout(() => { armedMini = null; renderPocket(); }, 3000); return; }
+    armedMini = null; tapeBack(id, m);
+  });
+
+  // ---------- torn-edge geometry ----------
+  // Perforation holes every 7px; tearing through them leaves little scallops plus loose fibres.
+  const HOLE = 7;
+  const profiles = new Map();
+  function profile(id, H) {
+    const key = id + ":" + Math.round(H);
+    if (profiles.has(key)) return profiles.get(key);
+    const rnd = seeded(key), a = [], b = [];
+    for (let y = 0; y <= H; y += 1.5) {
+      const ph = (y % HOLE) / HOLE;
+      const scallop = Math.max(0, Math.sin(ph * Math.PI)) * 2.1;
+      const fibre = rnd() < 0.12 ? rnd() * 2.6 : rnd() * 0.8;
+      a.push([y, 0.6 + scallop * (rnd() < 0.5 ? 1 : 0.4) + fibre]);
+      b.push([y, 0.6 + scallop * (rnd() < 0.5 ? 0.4 : 1) + (rnd() < 0.12 ? rnd() * 2.6 : rnd() * 0.8)]);
+    }
+    const p = { main: a, stub: b };
+    profiles.set(key, p);
+    return p;
+  }
+  const P = (x, y) => x.toFixed(1) + "px " + y.toFixed(1) + "px";
+  function edgeIn(prof, y0, y1) { return prof.filter(([y]) => y >= y0 && y <= y1); }
+  function mainClip(W, H, seg, prof) {
+    if (!seg) return "none";
+    const [y0, y1] = seg, pts = [P(0, 0)];
+    if (y0 > 0) pts.push(P(W + 2, 0), P(W + 2, y0));
+    edgeIn(prof, y0, y1).forEach(([y, d]) => pts.push(P(W - d, y)));
+    if (y1 < H) pts.push(P(W + 2, y1), P(W + 2, H)); else pts.push(P(W - 1, H));
+    pts.push(P(0, H));
+    return "polygon(" + pts.join(",") + ")";
+  }
+  // stub outline between rows ya..yb, torn (jagged) on its left side where it overlaps seg
+  function stubClip(w, H, seg, prof, ya, yb) {
+    const pts = [P(w + 2, ya)];
+    const s0 = seg ? Math.max(ya, seg[0]) : 0, s1 = seg ? Math.min(yb, seg[1]) : 0;
+    if (!seg || s1 <= s0) pts.push(P(-2, ya), P(-2, yb));
+    else {
+      if (s0 > ya) pts.push(P(-2, ya), P(-2, s0)); else pts.push(P(2, ya));
+      edgeIn(prof, s0, s1).forEach(([y, d]) => pts.push(P(d, y)));
+      if (s1 < yb) pts.push(P(-2, s1), P(-2, yb)); else pts.push(P(2, yb));
+    }
+    pts.push(P(w + 2, yb));
+    return "polygon(" + pts.join(",") + ")";
+  }
+  function tearSeg(tear, H) {
+    if (!tear || !(tear.p > 0)) return null;
+    const e = Math.min(1, tear.p) * H;
+    return tear.dir === "bottom" ? [H - e, H] : [0, e];
+  }
+  function applyStaticTears() {
+    document.querySelectorAll("#passes .ticket").forEach(tk => {
+      const f = state.flights.find(x => x.id === tk.dataset.id); if (!f || tk.classList.contains("flipped")) return;
+      const main = tk.querySelector(".main"), stub = tk.querySelector(".front > .stub");
+      const W = main.offsetWidth, H = main.offsetHeight, w = stub.offsetWidth;
+      const prof = profile(f.id, H);
+      const seg = f.torn ? [0, H] : tearSeg(f.tear, H);
+      main.style.clipPath = main.style.webkitClipPath = mainClip(W, H, seg, prof.main);
+      stub.style.clipPath = stub.style.webkitClipPath = seg && !f.torn ? stubClip(w, H, seg, prof.stub, 0, H) : "";
+    });
+  }
+  window.addEventListener("resize", () => requestAnimationFrame(applyStaticTears));
+
+  // ---------- sound (synthesised, no files) ----------
+  let actx = null, noiseBuf = null, tearSnd = null;
+  function audio() {
+    try {
+      if (!actx) {
+        actx = new (window.AudioContext || window.webkitAudioContext)();
+        noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
+        const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      }
+      if (actx.state === "suspended") actx.resume();
+      return actx;
+    } catch (e) { return null; }
+  }
+  function burst(dur, freq, q, vol, type) {
+    const a = audio(); if (!a) return;
+    const t = a.currentTime, s = a.createBufferSource(); s.buffer = noiseBuf; s.playbackRate.value = 0.8 + Math.random() * 0.6;
+    const f = a.createBiquadFilter(); f.type = type || "bandpass"; f.frequency.value = freq; f.Q.value = q;
+    const g = a.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    s.connect(f); f.connect(g); g.connect(a.destination); s.start(t, Math.random() * 1.5); s.stop(t + dur + 0.02);
+  }
+  function tearStart() {
+    const a = audio(); if (!a || tearSnd) return;
+    const s = a.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+    const hp = a.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1400;
+    const bp = a.createBiquadFilter(); bp.type = "peaking"; bp.frequency.value = 3200; bp.gain.value = 6;
+    const g = a.createGain(); g.gain.value = 0;
+    s.connect(hp); hp.connect(bp); bp.connect(g); g.connect(a.destination); s.start();
+    tearSnd = { s, g };
+  }
+  function tearLevel(v) { if (tearSnd && actx) tearSnd.g.gain.setTargetAtTime(Math.min(0.55, v), actx.currentTime, 0.025); }
+  function tearStop() { if (!tearSnd || !actx) return; const t = tearSnd; tearSnd = null; t.g.gain.setTargetAtTime(0, actx.currentTime, 0.03); setTimeout(() => { try { t.s.stop(); } catch (e) {} }, 200); }
+  const perfTick = () => burst(0.018 + Math.random() * 0.02, 2200 + Math.random() * 2500, 1.2, 0.55);
+  function snapSound() {
+    burst(0.07, 2600, 0.7, 0.9);
     const a = audio(); if (!a) return;
     const o = a.createOscillator(), g = a.createGain(), t = a.currentTime;
-    o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.12);
-    g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.08);
+    g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + 0.12);
+  }
+  const flapSound = () => burst(0.11, 700, 0.6, 0.5, "lowpass");
+  function stampSound() {
+    const a = audio(); if (!a) return;
+    const o = a.createOscillator(), g = a.createGain(), t = a.currentTime;
+    o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.12);
+    g.gain.setValueAtTime(0.55, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
     o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + 0.18);
+    burst(0.05, 900, 0.8, 0.35, "lowpass");
+  }
+  function tapeSound() {
+    const a = audio(); if (!a) return;
+    const t = a.currentTime, s = a.createBufferSource(); s.buffer = noiseBuf;
+    const f = a.createBiquadFilter(); f.type = "bandpass"; f.Q.value = 2; f.frequency.setValueAtTime(900, t); f.frequency.exponentialRampToValueAtTime(4200, t + 0.32);
+    const g = a.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.04); g.gain.exponentialRampToValueAtTime(0.001, t + 0.36);
+    s.connect(f); f.connect(g); g.connect(a.destination); s.start(t); s.stop(t + 0.4);
   }
 
-  // ---- tear the stub, flip the pass ----
-  let drag = null;
+  // ---------- the tear ----------
+  // Grab the stub and pull right. The tear runs along the perforation from the end nearest your finger;
+  // the torn part hinges at the tear tip while the rest stays attached. Let go early and the tear stays.
+  const TEAR_LEN = 118;           // px of pull to tear all the way through
+  let T = null, quietUntil = 0;
   const passesEl = $("passes");
   passesEl.addEventListener("pointerdown", e => {
-    const stub = e.target.closest(".stub"); if (!stub) return;
-    const tk = stub.closest(".ticket"); if (tk.classList.contains("flipped") || tk.classList.contains("torn")) return;
-    drag = { stub, tk, x: e.clientX, y: e.clientY, dx: 0, live: false, id: e.pointerId };
+    const stub = e.target.closest(".front > .stub"); if (!stub || T) return;
+    const tk = stub.closest(".ticket"); if (tk.classList.contains("torn")) return;
+    const f = state.flights.find(x => x.id === tk.dataset.id); if (!f) return;
     audio();
+    const r = stub.getBoundingClientRect();
+    const dir = f.tear && f.tear.p > 0 ? f.tear.dir : (e.clientY - r.top < r.height / 2 ? "top" : "bottom");
+    T = { f, tk, stub, main: tk.querySelector(".main"), front: tk.querySelector(".front"), id: e.pointerId, x0: e.clientX, y0: e.clientY,
+      dir, live: false, H: stub.offsetHeight, w: stub.offsetWidth, W: tk.querySelector(".main").offsetWidth,
+      e: (f.tear && f.tear.p > 0 ? f.tear.p : 0) * stub.offsetHeight, ang: 0, lastE: 0, lastT: performance.now(), piece: null, raf: 0 };
+    T.lastE = T.e;
   });
   passesEl.addEventListener("pointermove", e => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-    if (!drag.live) {
-      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { drag = null; return; }
-      if (dx > 8) { drag.live = true; try { drag.stub.setPointerCapture(e.pointerId); } catch (err) {} drag.stub.classList.add("dragging"); }
-      else return;
+    if (!T || e.pointerId !== T.id) return;
+    const dx = e.clientX - T.x0, dy = e.clientY - T.y0;
+    if (!T.live) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { T = null; return; }   // it's a scroll
+      if (dx < 7) return;
+      T.live = true;
+      try { T.stub.setPointerCapture(e.pointerId); } catch (err) {}
+      beginTear();
     }
-    drag.dx = Math.max(0, dx);
-    drag.stub.style.transform = "translateX(" + drag.dx + "px) rotate(" + (drag.dx * 0.12).toFixed(1) + "deg)";
     e.preventDefault();
+    // pulling slightly toward the attached end makes the tear go faster, like real paper
+    const assist = T.dir === "top" ? dy : -dy;
+    const pull = Math.max(0, dx + Math.max(0, assist) * 0.35);
+    T.ang = Math.min(34, pull * 0.24);
+    const target = Math.max(0, Math.min(1, (pull - 10) / TEAR_LEN)) * T.H;
+    if (target > T.e) T.e = target;          // paper never heals
+    if (!T.raf) T.raf = requestAnimationFrame(drawTear);
   });
-  function endDrag(e) {
-    if (!drag || (e && e.pointerId !== drag.id)) return;
-    const d = drag; drag = null;
-    d.stub.classList.remove("dragging");
-    if (!d.live) return;
-    d.stub.dataset.dragged = "1";
-    if (d.dx > 64) tearStub(d.tk, d.stub);
-    else { d.stub.style.transition = "transform .35s cubic-bezier(.2,1.4,.4,1)"; d.stub.style.transform = ""; setTimeout(() => { d.stub.style.transition = ""; }, 400); }
+  function beginTear() {
+    T.tk.classList.add("tearing");
+    T.stub.classList.remove("nudge");
+    const piece = T.stub.cloneNode(true);
+    piece.classList.add("piece");
+    piece.style.left = T.W + "px"; piece.style.width = T.w + "px"; piece.style.height = T.H + "px";
+    T.front.appendChild(piece);
+    T.piece = piece;
+    tearStart();
+    drawTear();
   }
-  passesEl.addEventListener("pointerup", endDrag);
-  passesEl.addEventListener("pointercancel", endDrag);
-  function tearStub(tk, stub) {
-    const f = state.flights.find(x => x.id === tk.dataset.id); if (!f) return;
-    ripSound();
-    stub.classList.add("fly");
-    setTimeout(() => { f.torn = true; commit({ quiet: true }); renderPasses(); setTimeout(thunkSound, 330); }, 380);
+  function drawTear() {
+    if (!T) return;
+    T.raf = 0;
+    const { H, w, W } = T;
+    const prof = profile(T.f.id, H);
+    const seg = T.dir === "top" ? [0, T.e] : [H - T.e, H];
+    const tip = T.dir === "top" ? T.e : H - T.e;
+    T.main.style.clipPath = T.main.style.webkitClipPath = mainClip(W, H, T.e > 0.5 ? seg : null, prof.main);
+    // attached part (no tear) and torn flap
+    const att = T.dir === "top" ? [tip, H] : [0, tip];
+    const flap = T.dir === "top" ? [0, tip] : [tip, H];
+    T.stub.style.clipPath = T.stub.style.webkitClipPath = att[1] - att[0] > 0.5 ? stubClip(w, H, null, prof.stub, att[0], att[1]) : "polygon(0 0,0 0,0 0)";
+    T.piece.style.clipPath = T.piece.style.webkitClipPath = flap[1] - flap[0] > 0.5 ? stubClip(w, H, seg, prof.stub, flap[0], flap[1]) : "polygon(0 0,0 0,0 0)";
+    // the torn flap shears away from the tip (paper bends there, it doesn't cut), plus a slight lift
+    const lift = Math.min(1, T.ang / 20);
+    T.piece.style.transformOrigin = "0px " + tip.toFixed(1) + "px";
+    T.piece.style.transform = flapTransform(T.dir, T.ang, lift);
+    T.piece.style.filter = "drop-shadow(" + (2 + lift * 4).toFixed(1) + "px " + (3 + lift * 7).toFixed(1) + "px " + (3 + lift * 6).toFixed(1) + "px rgba(30,35,49," + (0.12 + lift * 0.2).toFixed(2) + "))";
+    // sound follows how fast the tear moves; a snap for each perforation hole it passes
+    const now = performance.now(), dt = Math.max(8, now - T.lastT), dE = T.e - T.lastE;
+    const holesBefore = Math.floor(T.lastE / HOLE), holesNow = Math.floor(T.e / HOLE);
+    for (let k = 0; k < Math.min(3, holesNow - holesBefore); k++) setTimeout(perfTick, k * 9);
+    tearLevel(dE > 0 ? Math.min(1, dE / dt * 0.9) : 0);
+    T.lastE = T.e; T.lastT = now;
+    if (T.e >= H - 0.5) detach();
+  }
+  function flapTransform(dir, ang, lift) {
+    const sk = (dir === "top" ? -1 : 1) * ang * 0.9, rot = (dir === "top" ? 1 : -1) * ang * 0.12;
+    return "skewX(" + sk.toFixed(2) + "deg) rotate(" + rot.toFixed(2) + "deg) translateX(" + (lift * 2).toFixed(2) + "px) scale(" + (1 + lift * 0.012).toFixed(3) + ")";
+  }
+  function endTear(e) {
+    if (!T || (e && e.pointerId !== T.id)) return;
+    if (!T.live) { T = null; return; }
+    quietUntil = performance.now() + 450;
+    if (T.done) return;
+    tearStop();
+    const t = T; T = null;
+    // keep the partial tear, let the flap settle back down with a springy wobble
+    t.f.tear = t.e > 1.5 ? { p: Math.min(0.97, t.e / t.H), dir: t.dir } : t.f.tear;
+    commit({ quiet: true });
+    const a0 = t.ang, start = performance.now();
+    (function settle(now) {
+      const k = (now - start) / 420;
+      const a = a0 * Math.exp(-5 * k) * Math.cos(9 * k);
+      t.piece.style.transform = flapTransform(t.dir, a, 0);
+      if (k < 1) requestAnimationFrame(settle);
+      else { t.piece.remove(); t.tk.classList.remove("tearing"); t.stub.style.clipPath = t.stub.style.webkitClipPath = ""; applyStaticTears(); }
+    })(start);
+  }
+  passesEl.addEventListener("pointerup", endTear);
+  passesEl.addEventListener("pointercancel", endTear);
+  function detach() {
+    const t = T; t.done = true; T = null; quietUntil = performance.now() + 1500;
+    tearStop(); snapSound();
+    const H = t.H, w = t.w, prof = profile(t.f.id, H);
+    t.stub.style.visibility = "hidden";
+    t.main.style.clipPath = t.main.style.webkitClipPath = mainClip(t.W, H, [0, H], prof.main);
+    // fly the whole torn stub into the pocket
+    const piece = t.piece;
+    piece.style.clipPath = piece.style.webkitClipPath = stubClip(w, H, [0, H], prof.stub, 0, H);
+    const r0 = t.stub.getBoundingClientRect();
+    const sign = t.dir === "top" ? 1 : -1;
+    // the flap is sheared around the far end; as it comes free it springs flat and starts flying from there
+    const startT = t.piece.style.transform;
+    piece.style.transformOrigin = "0px " + (t.dir === "top" ? H : 0) + "px";
+    const Tx = 0, Ty = 0;
+    const slot = $("pocketSlot"), mainBox = $("main").getBoundingClientRect();
+    let target, scale = 0.6, endRot = -5;
+    if (slot) {
+      const s = slot.getBoundingClientRect();
+      scale = s.width / w;
+      target = { x: s.left + s.width / 2, y: s.top + s.height / 2 };
+      if (target.y > mainBox.bottom - 20) target = null;
+    }
+    const c0 = { x: r0.left + w / 2, y: r0.top + H / 2 };
+    const end = target || { x: c0.x + 40, y: mainBox.bottom + H };
+    const ctrl = { x: Math.max(c0.x, end.x) + 70, y: Math.min(c0.y, end.y) - 30 };
+    const frames = [];
+    for (let k = 0; k <= 16; k++) {
+      const u = k / 16, iu = 1 - u;
+      const x = iu * iu * c0.x + 2 * iu * u * ctrl.x + u * u * end.x - c0.x;
+      const y = iu * iu * c0.y + 2 * iu * u * ctrl.y + u * u * end.y - c0.y;
+      const rot = sign * t.ang * iu + endRot * u + Math.sin(u * Math.PI * 2.2) * 16 * iu;
+      const sc = 1 + (scale - 1) * u;
+      const ry = Math.sin(u * Math.PI) * 35;  // paper flutter
+      frames.push({ transform: "translate(" + (Tx * iu + x).toFixed(1) + "px," + (Ty * iu + y).toFixed(1) + "px) rotate(" + rot.toFixed(1) + "deg) rotateY(" + ry.toFixed(1) + "deg) scale(" + sc.toFixed(3) + ")", opacity: target || u < 0.7 ? 1 : 1 - (u - 0.7) / 0.3 });
+    }
+    // first spring the sheared flap straight (fast), then fly from its centre
+    frames.unshift({ transform: startT, offset: 0 });
+    frames[1].offset = 0.12;
+    piece.style.transformOrigin = "50% 50%";
+    const fixOrigin = frames.map((fr, k) => k === 0 ? Object.assign({}, fr, { transformOrigin: "0px " + (t.dir === "top" ? H : 0) + "px" }) : Object.assign({}, fr, { transformOrigin: "50% 50%" }));
+    const anim = piece.animate(fixOrigin, { duration: 900, easing: "cubic-bezier(.35,.1,.25,1)", fill: "forwards" });
+    anim.onfinish = () => {
+      t.f.torn = true; t.f.tear = null; t.f.tornAt = Date.now();
+      landId = t.f.id; boardedThunk = t.f.id;
+      commit({ quiet: true });
+      renderPasses();
+      if (target) flapSound(); else toast("Stub saved in your pocket ↓");
+      setTimeout(stampSound, 160);
+    };
+  }
+
+  function tapeBack(id, miniEl) {
+    const f = state.flights.find(x => x.id === id); if (!f) return;
+    const tk = document.querySelector('#passes .ticket[data-id="' + id + '"]');
+    const stub = tk && tk.querySelector(".front > .stub");
+    const finish = () => { f.torn = false; f.tear = null; commit({ quiet: true }); renderPasses(); tapeSound(); };
+    if (!stub || !miniEl.animate) { finish(); return; }
+    const a = miniEl.getBoundingClientRect(), b = stub.getBoundingClientRect();
+    const dx = (b.left + b.width / 2) - (a.left + a.width / 2), dy = (b.top + b.height / 2) - (a.top + a.height / 2);
+    const sc = b.width / a.width, r0 = parseFloat(miniEl.style.getPropertyValue("--r")) || 0;
+    miniEl.style.zIndex = 50;
+    miniEl.animate([{ transform: "rotate(" + r0 + "deg)" }, { transform: "translate(" + dx * 0.5 + "px," + (dy * 0.5 - 40) + "px) rotate(10deg) scale(" + (1 + (sc - 1) * 0.5) + ")" }, { transform: "translate(" + dx + "px," + dy + "px) rotate(0deg) scale(" + sc + ")", opacity: 0.4 }],
+      { duration: 520, easing: "cubic-bezier(.4,0,.2,1)", fill: "forwards" }).onfinish = finish;
+  }
+
+  // ---------- flip ----------
+  function flipPass(tk) {
+    if (tk.dataset.busy) return;
+    const fl = tk.querySelector(".flipper"), h = fl.offsetHeight;
+    tk.dataset.busy = "1";
+    const back = tk.querySelector(".back");
+    if (!fl.animate) { tk.classList.toggle("flipped"); back.style.minHeight = h + "px"; delete tk.dataset.busy; return; }
+    fl.animate([{ transform: "perspective(900px) rotateY(0deg)" }, { transform: "perspective(900px) rotateY(90deg)" }], { duration: 160, easing: "ease-in" }).onfinish = () => {
+      tk.classList.toggle("flipped");
+      back.style.minHeight = h + "px";
+      if (!tk.classList.contains("flipped")) applyStaticTears();
+      fl.animate([{ transform: "perspective(900px) rotateY(-90deg)" }, { transform: "perspective(900px) rotateY(0deg)" }], { duration: 260, easing: "cubic-bezier(.2,1.25,.4,1)" }).onfinish = () => { delete tk.dataset.busy; };
+    };
   }
   passesEl.addEventListener("click", e => {
-    if (e.target.closest("[data-edit]")) { openFlights(); return; }
-    const tape = e.target.closest("[data-tape]");
-    if (tape) { const f = state.flights.find(x => x.id === tape.dataset.tape); if (f) { f.torn = false; commit({ quiet: true }); renderPasses(); } return; }
-    const stub = e.target.closest(".stub");
+    if (performance.now() < quietUntil) return;
+    const stub = e.target.closest(".front > .stub");
     if (stub) {
-      if (stub.dataset.dragged) { delete stub.dataset.dragged; return; }
       stub.classList.remove("nudge"); void stub.offsetWidth; stub.classList.add("nudge");
-      toast("Drag the stub to the right to tear it off");
+      toast("Pull the stub to the right to tear it off");
       return;
     }
     const tk = e.target.closest(".ticket");
-    if (tk && (e.target.closest(".main") || e.target.closest(".back"))) tk.classList.toggle("flipped");
+    if (tk && (e.target.closest(".main") || e.target.closest(".back"))) flipPass(tk);
   });
   passesEl.addEventListener("keydown", e => {
     if (e.key !== "Enter" && e.key !== " ") return;
-    const tk = e.target.closest(".ticket"); if (!tk || e.target.tagName === "BUTTON") return;
-    e.preventDefault(); tk.classList.toggle("flipped");
+    const tk = e.target.closest(".ticket"); if (!tk) return;
+    e.preventDefault(); flipPass(tk);
   });
 
   // ================= FLIGHT MAP =================
@@ -599,7 +878,7 @@
     $("ahead").innerHTML = aheadTxt;
     { const t = legTimes(P.leg); renderPorthole(P, P.src === "preview" && t ? t.dep + P.prog * P.leg.dur * 60000 : now); }
     $("seatHint").textContent = side === "left" || side === "right" ? "Based on seat " + P.leg.seat.toUpperCase() + ". Check it once you're on board, since plane layouts differ." :
-      side === "aisle" ? "Seat " + P.leg.seat.toUpperCase() + " looks like a middle or aisle seat. Lean over!" : "Add your seat in Edit flights and your window side gets highlighted.";
+      side === "aisle" ? "Seat " + P.leg.seat.toUpperCase() + " looks like a middle or aisle seat. Lean over!" : "Add your seat with Edit flights on the Passes tab and your window side gets highlighted.";
   }
 
   // ================= GPS card =================
@@ -730,7 +1009,6 @@
     };
   }
   $("editFlights").onclick = openFlights;
-  $("editFlights2").onclick = openFlights;
 
   // ================= toast =================
   let toastTimer = null;
@@ -748,7 +1026,7 @@
     Object.entries(TABS).forEach(([k, v]) => $(v).classList.toggle("on", k === name));
     document.querySelectorAll("nav.tabs button").forEach(b => { if (b.dataset.tab === name) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
     $("main").scrollTop = 0;
-    if (name === "passes") { passesAnimated = false; stampSeen.clear(); renderPasses(); }
+    if (name === "passes") { passesAnimated = false; stampSeen.clear(); renderPasses(); hintTear(); }
     if (name === "flight") { drawNext = true; lastWindowKey = ""; resumeGPS(); renderFlight(); } else pauseGPS();
     if (name === "checklist") renderChecklist();
   }
@@ -758,12 +1036,19 @@
   });
   window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
 
+  // first visit: the first untorn stub gives a little wiggle so you know it moves
+  let hinted = false;
+  function hintTear() {
+    if (hinted) return; hinted = true;
+    setTimeout(() => { const st = document.querySelector("#passes .ticket:not(.torn) .front > .stub"); if (st) { st.classList.add("nudge"); } }, 1100);
+  }
+
   // ================= loop =================
   function tickClocks() { const now = Date.now(); $("clkS").textContent = hhmm(now, "SGT"); $("clkI").textContent = hhmm(now, "IST"); }
   function renderAll() { renderPasses(); renderFlight(); renderChecklist(); }
   tickClocks();
   setInterval(tickClocks, 1000);
-  setInterval(() => { if (curTab === "flight") { renderGPS(); if (!gps.last || Date.now() - gps.last.t > 5000) renderFlight(); } if (curTab === "passes") renderPasses(); }, 5000);
+  setInterval(() => { if (curTab === "flight") { renderGPS(); if (!gps.last || Date.now() - gps.last.t > 5000) renderFlight(); } if (curTab === "passes") refreshStamps(); }, 5000);
 
   renderGPS(); renderChecklist();
   try { if (localStorage.getItem(LS_GPS) === "1") { gps.on = true; gps.status = "searching"; } } catch (e) {}

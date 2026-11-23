@@ -32,8 +32,13 @@
     <!-- PASSES -->
     <section class="view" id="v-passes" aria-label="Boarding passes">
       <div id="passes"></div>
+      <div class="card" id="pocket">
+        <div class="card-h"><h3>STUB POCKET</h3><span class="kicker" id="pocketCount"></span></div>
+        <div class="pocket-row" id="pocketRow"></div>
+        <p class="note" id="pocketNote"></p>
+      </div>
       <div class="toolbar"><button class="btn primary" id="editFlights">Edit flights</button></div>
-      <p class="note">Tap a pass to flip it and see your seat. Drag the stub right to tear it off when you board.</p>
+      <p class="note">Tap a pass to flip it and see your seat. When you board, grab the stub and pull it right to tear it off.</p>
     </section>
 
     <!-- FLIGHT -->
@@ -80,7 +85,6 @@
         <p class="note" id="seatHint"></p>
       </div>
 
-      <div class="toolbar"><button class="btn" id="editFlights2">Edit flights</button></div>
     </section>
 
     <!-- CHECKLIST -->
