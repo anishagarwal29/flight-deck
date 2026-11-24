@@ -6,6 +6,13 @@
 <meta name="theme-color" content="#0b0e16">
 <title>Flight Deck · First Class</title>
 <link rel="stylesheet" href="cabin.css">
+<script>
+  // if anything breaks, say so on screen instead of a silent black page
+  window.__fail = msg => { var l = document.getElementById("bLoad"); if (l) { l.textContent = "Something broke: " + msg; l.style.color = "#ff8f80"; l.style.textTransform = "none"; l.style.letterSpacing = "0"; l.style.fontSize = "13px"; l.style.height = "auto"; } };
+  addEventListener("error", function (e) { __fail((e.message || "a file didn't load") + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : "")); }, true);
+  addEventListener("unhandledrejection", function (e) { __fail(String(e.reason && (e.reason.message || e.reason))); });
+  setTimeout(function () { var b = document.getElementById("boardBtn"); if (b && b.disabled) __fail("still loading after 25 seconds. Slow connection? Try reloading."); }, 25000);
+</script>
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.min.js", "three/addons/": "./lib/addons/" } }
 </script>

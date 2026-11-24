@@ -15,7 +15,9 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---------- renderer: physically based, filmic, with ambient occlusion ----------
 const canvas = $("#gl");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" }); }
+catch (e) { window.__fail("this browser couldn't start 3D graphics (WebGL). Try Chrome on your laptop."); throw e; }
 const DPR = Math.min(devicePixelRatio, 1.5);
 renderer.setPixelRatio(DPR);
 renderer.setSize(innerWidth, innerHeight);

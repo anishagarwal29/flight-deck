@@ -1,5 +1,5 @@
 // Flight Deck service worker: keeps every file on the phone so the app opens with no internet.
-const CACHE = "flightdeck-v14";
+const CACHE = "flightdeck-v15";
 const FILES = [
   "./", "index.html", "app.css", "app.js", "manifest.webmanifest",
   "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png",
@@ -24,16 +24,13 @@ self.addEventListener("fetch", e => {
   if (e.request.method !== "GET" || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    try {
-      const res = await Promise.race([
-        fetch(e.request, { cache: "no-cache" }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("slow")), 4000))
-      ]);
-      if (res && res.ok) cache.put(e.request, res.clone());
-      return res;
-    } catch (err) {
-      const hit = await cache.match(e.request, { ignoreSearch: true });
-      return hit || Response.error();
+    const hit = await cache.match(e.request, { ignoreSearch: true });
+    const net = fetch(e.request, { cache: "no-cache" }).then(res => { if (res && res.ok) cache.put(e.request, res.clone()); return res; });
+    if (!hit) {   // nothing saved yet: wait for the network however long it takes (big 3D files on slow wifi)
+      try { return await net; } catch (err) { return Response.error(); }
     }
+    // saved copy exists: prefer fresh, but don't keep you waiting more than 4s
+    try { return await Promise.race([net, new Promise((_, rej) => setTimeout(() => rej(new Error("slow")), 4000))]); }
+    catch (err) { return hit; }
   })());
 });
