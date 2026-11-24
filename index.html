@@ -67,10 +67,6 @@
         </div>
         <label class="switch"><input type="checkbox" id="annOn"> Captain announcements</label>
       </div>
-
-      <div class="toolbar fx-btns">
-        <button class="btn fx" id="openIFE"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Seatback screen</button>
-      </div>
       <div class="legs" id="legChips"></div>
       <div class="mapcard">
         <span class="mode-tag" id="modeTag">PREVIEW</span>
@@ -110,7 +106,7 @@
     <!-- PASSPORT -->
     <section class="view" id="v-passport" aria-label="Passport">
       <div class="pass-bar"><div><h2 class="pp-title">Passport</h2><span class="kicker" id="ppCount"></span></div><span style="flex:1"></span><button class="btn ghost sticker-toggle">Stickers</button></div>
-      <button class="log-btn" id="logMomentBtn"><span class="lb-stamp" aria-hidden="true"></span><span><b>Log a moment</b><small>Write what you did. It turns into the right bit of travel paper.</small></span></button>
+      <button class="log-btn" id="logMomentBtn"><span class="lb-stamp" aria-hidden="true"></span><span><b>Log a moment</b><small>Or tap any empty spot on a journal page. Pick what it was, then stamp it in.</small></span></button>
       <div class="pp-book" id="ppBook"></div>
       <div class="stamp-hint" id="stampHint"><b>Tap where you want to stamp it</b><button class="linkbtn" id="stampAuto">Place it for me</button></div>
       <p class="note" style="text-align:center">Swipe or tap the edges to turn pages. Stamps appear as you fly.</p>
@@ -150,16 +146,6 @@
   <div class="tray-row" id="trayRow"></div>
 </div>
 
-<!-- seatback screen -->
-<div class="overlay ife" id="ife" role="dialog" aria-modal="true" aria-label="Seatback screen">
-  <div class="ife-bezel">
-    <div class="ife-screen">
-      <div class="ife-top"><div id="ifeHead"></div><button class="ife-x" id="ifeClose" aria-label="Close">×</button></div>
-      <div class="ife-body in" id="ifeBody"></div>
-      <div class="ife-foot"><span id="ifeSrc"></span><span class="ife-dots" id="ifeDots"></span><span>TAP FOR NEXT</span></div>
-    </div>
-  </div>
-</div>
 
 
 <script src="app.js"></script>

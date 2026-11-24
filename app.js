@@ -163,7 +163,7 @@
         id = kind + ":" + (f ? f.id : code);
       }
       return { id, kind: kind === "arr" ? "arr" : "dep", code: code3(code) || "???", at: +x.at || Date.now(), r: +x.r || 0, dx: +x.dx || 0 };
-    }).filter(x => x.code !== "???");
+    }).filter(x => x.code !== "???" && out.flights.some(f => x.id === x.kind + ":" + f.id));   // stamps belong to a flight: no flight, no stamp
     out.ppStickers = cleanStickers(s.ppStickers, 5000);
     out.moments = (Array.isArray(s.moments) ? s.moments : []).filter(m => m && m.id).map(m => ({ id: String(m.id), kind: MOMENT_KINDS[m.kind] ? m.kind : "did", icon: ICONS[m.icon] ? m.icon : (MOMENT_KINDS[m.kind] || MOMENT_KINDS.did).icon, what: String(m.what || "").slice(0, 80), note: String(m.note || "").slice(0, 400),
       where: String(m.where || "").slice(0, 40), at: +m.at || Date.now(), hearts: Math.max(0, Math.min(3, +m.hearts || 0)), photo: !!m.photo, x: m.x == null ? null : +m.x, y: m.y == null ? null : +m.y, r: +m.r || 0 }));
@@ -603,7 +603,7 @@
       const id = del.dataset.delFlight;
       if (del.dataset.armed) {
         const tk = del.closest(".ticket");
-        const go = () => { state.flights = state.flights.filter(f => f.id !== id); commit({ quiet: true }); renderPasses(); renderFlight(); };
+        const go = () => { state.flights = state.flights.filter(f => f.id !== id); state.stamps = state.stamps.filter(x => !x.id.endsWith(":" + id)); commit({ quiet: true }); renderPasses(); renderFlight(); };
         if (tk && tk.animate && !reduceMotion) tk.animate([{ opacity: 1 }, { opacity: 0, transform: "translateX(-40px) rotate(-2deg)" }], { duration: 220 }).onfinish = go; else go();
       } else { del.dataset.armed = "1"; del.textContent = "Delete"; del.classList.add("armed"); setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = "−"; del.classList.remove("armed"); } }, 3000); }
       e.stopPropagation(); return;
@@ -1402,7 +1402,7 @@
     if (f) $("fDelete").onclick = e => {
       const b = e.currentTarget;
       if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Tap again to delete"; return; }
-      state.flights = state.flights.filter(x => x.id !== f.id); closeSheet(); commit(); toast("Flight deleted");
+      state.flights = state.flights.filter(x => x.id !== f.id); state.stamps = state.stamps.filter(x => !x.id.endsWith(":" + f.id)); closeSheet(); commit(); toast("Flight and its stamps deleted");
     };
     $("flightForm").onsubmit = e => {
       e.preventDefault();
@@ -2118,38 +2118,46 @@
     return ppSheet("journal", "j" + pg.i, inner, idx);
   }
   function journalPageIndex(id) { return ppPages().findIndex(p => p.k === "journal" && p.moments.some(m => m.id === id)); }
-  function dropMoment(m) {
-    freshMoment = m.id; renderPassport(); freshMoment = null;
-    setTimeout(() => { if (m.photo) tapeSound(); else slapSound(); if (navigator.vibrate) navigator.vibrate(14); }, 160);
-  }
 
   // ---------- the log sheet: write it, the paper picks itself ----------
   let draftPhoto = null;
-  // what you wrote decides the paper; anything it can't place becomes a handwritten sticky note
-  const autoKind = text => detectMoment(text) || { kind: "felt", icon: "note" };
+  // pick the kind of moment from little tiles showing its paper; then write it; then stamp it in
+  const TILE_SAMPLES = { ate: "Chai", saw: "Golghar", did: "Cricket", bought: "Bangles", met: "Nani", stayed: "Nani's", rode: "Auto", felt: "Happy" };
   function openMomentEditor(id, at) {
     const m = id ? state.moments.find(x => x.id === id) : null;
-    let hearts = m ? m.hearts : 0;
+    let kind = m ? m.kind : null, hearts = m ? m.hearts : 0;
     draftPhoto = m && m.photo ? photoURL.get(m.id) || null : null;
-    sheet.innerHTML = '<form id="moForm" class="mo-form" autocomplete="off"><h2>' + (m ? "Edit" : "What happened?") + "</h2>" +
-      '<textarea id="moWhat" class="mo-what" rows="2" maxlength="120" aria-label="What happened" enterkeyhint="done">' + esc(m ? m.what : "") + "</textarea>" +
-      '<div class="mo-preview"><div class="mo-prev-item" id="moPrev"></div></div>' +
+    const where = m ? m.where : placeNow();
+    sheet.innerHTML = '<form id="moForm" class="mo-form" autocomplete="off"><h2>' + (m ? "Edit moment" : "Add to your journal") + "</h2>" +
+      '<div class="mo-tiles" id="moTiles">' + Object.keys(MOMENT_KINDS).map(k => {
+        const K = MOMENT_KINDS[k], sample = { id: "tile-" + k, kind: k, icon: K.icon, what: TILE_SAMPLES[k], where: "Patna", hearts: 0, at: Date.now() };
+        return '<button type="button" class="mo-tile" data-kind="' + k + '" style="--k:' + K.ink + '"><span class="tile-art">' + momentArt(sample, "t") + "</span><span class=\"tile-l\">" + K.label + "</span></button>";
+      }).join("") + "</div>" +
+      '<div class="field"><label for="moWhat">What happened?</label><textarea id="moWhat" class="mo-what" rows="2" maxlength="120" enterkeyhint="done">' + esc(m ? m.what : "") + "</textarea></div>" +
+      '<div class="mo-preview" id="moPrevWrap"><div class="mo-prev-item" id="moPrev"></div></div>' +
       '<div class="mo-row"><label class="mo-photo" id="moPhotoBtn"><input type="file" accept="image/*" id="moPhoto" hidden><span id="moPhotoPrev"></span></label>' +
       '<div class="mo-side"><div class="field"><label>How good?</label><div class="mo-hearts" id="moHearts">' + [1, 2, 3].map(n => '<button type="button" data-h="' + n + '" aria-label="' + n + ' hearts"><svg viewBox="0 0 24 24">' + HEART + "</svg></button>").join("") + "</div></div></div></div>" +
       '<p class="fine" id="moErr" style="color:var(--red)"></p>' +
-      '<div class="actions"><button type="button" class="btn ghost" id="cancelSheet">Cancel</button><button type="submit" class="btn red">' + (m ? "Save" : "Stick it in") + "</button></div></form>";
+      '<div class="actions"><button type="button" class="btn ghost" id="cancelSheet">Cancel</button><button type="submit" class="btn red">' + (m ? "Save" : "Stamp it") + "</button></div></form>";
     scrim.classList.add("on");
-    const where = m ? m.where : placeNow();
-    let lastKind = "";
+    const iconFor = (k, txt) => { const g = detectMoment(txt); return g && g.kind === k ? g.icon : MOMENT_KINDS[k].icon; };   // only the little picture, never the category
     const preview = () => {
-      const txt = $("moWhat").value.trim(), g = autoKind(txt), el = $("moPrev");
-      const d = { id: m ? m.id : "draft", kind: g.kind, icon: g.icon, what: txt || "…", note: "", where, hearts, at: m ? m.at : Date.now(), photo: false };
-      el.style.width = Math.round(MOMENT_KINDS[g.kind].w * 3.6) + "px";
-      el.innerHTML = momentArt(d, "p");
-      if (lastKind !== g.kind) { if (lastKind) { el.classList.remove("swap"); void el.offsetWidth; el.classList.add("swap"); snapSound(); } lastKind = g.kind; }
+      const el = $("moPrev"), wrap = $("moPrevWrap");
+      sheet.querySelectorAll(".mo-tile").forEach(b => b.classList.toggle("on", b.dataset.kind === kind));
+      wrap.classList.toggle("empty", !kind);
+      if (!kind) { el.style.width = ""; el.innerHTML = "<span>Pick one above</span>"; return; }
+      const txt = $("moWhat").value.trim();
+      el.style.width = Math.round(MOMENT_KINDS[kind].w * 3.6) + "px";
+      el.innerHTML = momentArt({ id: m ? m.id : "draft", kind, icon: iconFor(kind, txt), what: txt || "…", note: "", where, hearts, at: m ? m.at : Date.now() }, "p");
     };
     const setHearts = n => { hearts = n; sheet.querySelectorAll("[data-h]").forEach(b => b.classList.toggle("on", +b.dataset.h <= n)); preview(); };
     const showPhoto = () => { $("moPhotoPrev").innerHTML = draftPhoto ? '<img src="' + draftPhoto + '" alt=""><b class="mo-x" id="moPhotoX">×</b>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg><small>Add a photo</small>'; $("moPhotoBtn").classList.toggle("on", !!draftPhoto); };
+    sheet.querySelectorAll(".mo-tile").forEach(b => b.onclick = () => {
+      kind = b.dataset.kind; snapSound(); if (navigator.vibrate) navigator.vibrate(8);
+      const el = $("moPrev"); el.classList.remove("swap"); void el.offsetWidth; el.classList.add("swap");
+      preview(); $("moErr").textContent = "";
+      if (!$("moWhat").value.trim()) setTimeout(() => $("moWhat").focus(), 60);
+    });
     $("moWhat").addEventListener("input", preview);
     $("moWhat").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("moWhat").blur(); } });
     sheet.querySelectorAll("[data-h]").forEach(b => b.onclick = () => { setHearts(hearts === +b.dataset.h ? 0 : +b.dataset.h); if (navigator.vibrate) navigator.vibrate(8); });
@@ -2160,9 +2168,9 @@
     $("moForm").onsubmit = e => {
       e.preventDefault();
       const what = $("moWhat").value.trim().replace(/\s+/g, " ");
+      if (!kind) { $("moErr").textContent = "Pick what kind of moment it is."; return; }
       if (!what) { $("moErr").textContent = "Write what happened, even just a word."; $("moWhat").focus(); return; }
-      const g = autoKind(what);
-      const fields = { kind: g.kind, icon: g.icon, what, note: "", where, hearts, photo: !!draftPhoto };
+      const fields = { kind, icon: iconFor(kind, what), what, note: m ? m.note : "", where, hearts, photo: !!draftPhoto };
       if (m) {
         Object.assign(m, fields); if (draftPhoto) photoPut(m.id, draftPhoto); else photoDel(m.id);
         commit({ quiet: true }); closeSheet(); renderPassport(); toast("Saved"); return;
@@ -2172,9 +2180,9 @@
       const nm = Object.assign({ id: uid(), at: when, x: at ? at.x : null, y: at ? at.y : null, r: +(Math.random() * 14 - 7).toFixed(1) }, fields);
       if (draftPhoto) photoPut(nm.id, draftPhoto);
       state.moments.push(nm); commit({ quiet: true }); closeSheet();
-      if (at) { ppPage = Math.max(0, journalPageIndex(nm.id)); dropMoment(nm); } else startPlacing(nm);
+      startPlacing(nm);
     };
-    if (!m) setTimeout(() => $("moWhat").focus(), 350);
+    preview();
   }
 
   // ---------- the moment, up close ----------
@@ -2193,17 +2201,20 @@
     $("moDel").onclick = e => { const b = e.currentTarget; if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Tap again to delete"; return; } state.moments = state.moments.filter(x => x.id !== id); photoDel(id); commit({ quiet: true }); closeSheet(); renderPassport(); toast("Moment removed"); };
   }
 
-  // ---------- placing it by hand: the paper follows your finger, let go to stick it down ----------
-  const placer = document.createElement("div"); placer.className = "placer"; document.body.appendChild(placer);
+  // ---------- stamping it in: the rubber stamp comes up, tap where it goes and it slams down ----------
+  const placer = document.createElement("div"); placer.className = "stamper";
+  placer.innerHTML = '<div class="st-handle"></div><div class="st-neck"></div><div class="st-block"><div class="st-face"></div></div>';
+  document.body.appendChild(placer);
   function startPlacing(m) {
     placing = m;
     if (curTab !== "passport") showTab("passport");
     ppPage = Math.max(0, journalPageIndex(m.id)); renderPassport();
     $("ppBook").classList.add("placing"); $("stampHint").classList.add("on");
+    placer.style.setProperty("--k", MOMENT_KINDS[m.kind].ink);
     const sh = $("ppBook").querySelector(".pp-sheet"), r = sh.getBoundingClientRect();
-    placer.style.width = (r.width * momentWidth(m) / 100) + "px"; placer.style.setProperty("--r", m.r + "deg");
-    placer.innerHTML = '<div class="mo-in">' + momentInner(m, "f") + "</div>";
-    movePlacer(r.left + r.width / 2, r.top + r.height * 0.5); placer.className = "placer on hover";
+    const x = m.x != null ? r.left + r.width * m.x / 100 : r.left + r.width / 2, y = m.y != null ? r.top + r.height * m.y / 100 : r.top + r.height * 0.5;
+    movePlacer(x, y); placer.className = "stamper on hover";
+    if (navigator.vibrate) navigator.vibrate(6);
   }
   function movePlacer(x, y) { placer.style.left = x + "px"; placer.style.top = y + "px"; }
   function placeAt(x, y) {
@@ -2211,87 +2222,28 @@
     const r = sh.getBoundingClientRect();
     m.x = +Math.max(16, Math.min(84, (x - r.left) / r.width * 100)).toFixed(1);
     m.y = +Math.max(18, Math.min(86, (y - r.top) / r.height * 100)).toFixed(1);
-    placing = null; placedAt = Date.now(); commit({ quiet: true });
-    $("ppBook").classList.remove("placing"); $("stampHint").classList.remove("on");
-    placer.className = "placer"; dropMoment(m);
+    placing = null; placedAt = Date.now();
+    movePlacer(x, y); placer.className = "stamper on slam";
+    setTimeout(() => {
+      stampSound(); if (navigator.vibrate) navigator.vibrate([20, 30, 8]);
+      commit({ quiet: true });
+      $("ppBook").classList.remove("placing"); $("stampHint").classList.remove("on");
+      freshMoment = m.id; renderPassport(); freshMoment = null;
+      if (m.photo) setTimeout(tapeSound, 350);
+    }, 170);
+    setTimeout(() => { placer.className = "stamper"; }, 700);
   }
   const bookEl = $("ppBook");
-  bookEl.addEventListener("pointerdown", e => { if (!placing) return; e.preventDefault(); placer.className = "placer on lift"; movePlacer(e.clientX, e.clientY); try { bookEl.setPointerCapture(e.pointerId); } catch (err) {} });
+  bookEl.addEventListener("pointerdown", e => { if (!placing) return; e.preventDefault(); placer.className = "stamper on lift"; movePlacer(e.clientX, e.clientY); try { bookEl.setPointerCapture(e.pointerId); } catch (err) {} });
   bookEl.addEventListener("pointermove", e => { if (placing) movePlacer(e.clientX, e.clientY); });
   bookEl.addEventListener("pointerup", e => { if (!placing) return; e.preventDefault(); placeAt(e.clientX, e.clientY); });
   // fingers: touch events (iPhone Safari is unreliable with pointer drags)
-  bookEl.addEventListener("touchstart", e => { if (!placing) return; e.preventDefault(); const t = e.touches[0]; placer.className = "placer on lift"; movePlacer(t.clientX, t.clientY); }, { passive: false });
+  bookEl.addEventListener("touchstart", e => { if (!placing) return; e.preventDefault(); const t = e.touches[0]; placer.className = "stamper on lift"; movePlacer(t.clientX, t.clientY); }, { passive: false });
   bookEl.addEventListener("touchmove", e => { if (!placing) return; e.preventDefault(); const t = e.touches[0]; movePlacer(t.clientX, t.clientY); }, { passive: false });
   bookEl.addEventListener("touchend", e => { if (!placing) return; e.preventDefault(); const t = e.changedTouches[0]; placeAt(t.clientX, t.clientY); }, { passive: false });
   $("stampAuto").addEventListener("click", () => { if (!placing) return; const sh = bookEl.querySelector(".pp-sheet"), r = sh.getBoundingClientRect(), pg = ppPages()[ppPage], k = Math.max(0, pg.moments ? pg.moments.indexOf(placing) : 0), sp = J_SPOTS[k % 6]; placeAt(r.left + r.width * sp[0] / 100, r.top + r.height * sp[1] / 100); });
   $("logMomentBtn").addEventListener("click", () => openMomentEditor());
 
-  // ================= SEATBACK SCREEN =================
-  let ifeIdx = 0, ifeTimer = null, ifeTick = null;
-  const IFE_PANES = ["map", "data", "times", "window"];
-  function openIFE() {
-    $("ife").classList.add("on"); document.body.classList.add("overlay-open");
-    ifeIdx = 0; renderIFE(true);
-    clearInterval(ifeTimer); ifeTimer = setInterval(() => { ifeIdx = (ifeIdx + 1) % IFE_PANES.length; renderIFE(true); }, 9000);
-    clearInterval(ifeTick); ifeTick = setInterval(() => renderIFE(false), 3000);
-    if (curTab === "flight") resumeGPS();
-  }
-  function closeIFE() { $("ife").classList.remove("on"); document.body.classList.remove("overlay-open"); clearInterval(ifeTimer); clearInterval(ifeTick); }
-  function isaTemp(altM) { return altM == null ? null : Math.max(-56.5, 15 - 6.5 * altM / 1000); }
-  function renderIFE(swap) {
-    const now = Date.now(), P = currentPos(now); if (!P) return;
-    const f = P.leg, A = ap(f.from), B = ap(f.to), t = legTimes(f), v = buildView(f); if (!v) return;
-    let left;
-    if (P.src === "gps") left = (P.spd || 0) > 40 ? P.toGo * 1000 / P.spd / 60 : (t && now < t.arr ? (t.arr - Math.max(now, t.dep)) / 60000 : null);
-    else left = (1 - P.prog) * (t ? (t.arr - t.dep) / 60000 : estDur(f));
-    const eta = left != null ? now + left * 60000 : (t ? t.arr : null);
-    const alt = P.alt != null ? P.alt : (P.src !== "preview" || P.prog > 0.08 && P.prog < 0.9 ? 11000 : null);
-    const altEst = P.alt == null;
-    $("ifeHead").innerHTML = "<b>FLIGHT DECK AIR</b><span>" + esc(f.no ? f.no.toUpperCase() + " · " : "") + f.from + " → " + f.to + "</span>";
-    const pane = IFE_PANES[ifeIdx];
-    let html = "";
-    if (pane === "map") {
-      const [px, py] = proj(P.lon, P.lat);
-      const done = polyPts(A, B, 0, Math.max(0.001, P.prog), 40), all = polyPts(A, B, 0, 1, 40);
-      const lands = v.lands.replace(/ class="land"/g, ""), labels = v.cities.replace(/<circle[^>]*\/>/g, "").replace(/ class="lbl-city"/g, "");
-      const ap = [A, B].map((a, k) => { const [x, y] = proj(a.lon, a.lat); return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="4" class="i-ap"/><text class="i-apl" x="' + (x + (k ? -8 : 8)).toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="' + (k ? "end" : "start") + '">' + (k ? f.to : f.from) + "</text>"; }).join("");
-      html = '<div class="ife-map"><svg id="ifeSvg" data-px="' + px.toFixed(1) + '" data-py="' + py.toFixed(1) + '" viewBox="0 0 400 430" preserveAspectRatio="xMidYMid meet"><g class="i-land">' + lands + '</g><g class="i-lbl">' + labels + '</g><polyline class="i-all" points="' + all + '"/><polyline class="i-done" points="' + done + '"/>' + ap +
-        '<g transform="translate(' + px.toFixed(1) + "," + py.toFixed(1) + ") rotate(" + (P.hdg || 0).toFixed(0) + ') scale(1.5)"><path class="i-plane" d="' + PLANE_PATH + '"/></g></svg>' +
-        '<div class="ife-strip"><div><small>TIME TO DESTINATION</small><b>' + (left != null ? dur(left) : "—") + '</b></div><div><small>DISTANCE TO GO</small><b>' + fmtInt(P.toGo) + ' km</b></div><div><small>GROUND SPEED</small><b>' + (P.spd ? fmtInt(P.spd * 3.6) : "—") + " km/h</b></div></div></div>";
-    } else if (pane === "data") {
-      const temp = isaTemp(alt);
-      html = '<div class="ife-grid">' +
-        '<div><small>ALTITUDE</small><b>' + (alt != null ? fmtInt(alt * 3.28084) : "—") + "<em>ft</em></b><span>" + (alt != null ? fmtInt(alt) + " m" + (altEst ? " · typical cruise" : "") : "") + "</span></div>" +
-        '<div><small>GROUND SPEED</small><b>' + (P.spd ? fmtInt(P.spd * 3.6) : "—") + "<em>km/h</em></b><span>" + (P.spd ? fmtInt(P.spd * 1.94384) + " knots" : "") + "</span></div>" +
-        '<div><small>OUTSIDE AIR TEMP</small><b>' + (temp != null ? Math.round(temp) : "—") + "<em>°C</em></b><span>estimated</span></div>" +
-        '<div><small>HEADING</small><b>' + (P.hdg != null ? Math.round(P.hdg) : "—") + "<em>°</em></b><span>" + (P.hdg != null ? compass(P.hdg) : "") + "</span></div>" +
-        '<div class="wide"><small>NOW OVER</small><b class="sm">' + esc(cap(whereLabel(P.lat, P.lon))) + "</b></div></div>";
-    } else if (pane === "times") {
-      html = '<div class="ife-times">' +
-        '<div><small>TIME IN ' + esc(A.CITY) + '</small><b>' + hhmm(now, A.tz) + "</b><span>" + dayKey(now, A.tz) + "</span></div>" +
-        '<div><small>TIME IN ' + esc(B.CITY) + '</small><b>' + hhmm(now, B.tz) + "</b><span>" + dayKey(now, B.tz) + "</span></div>" +
-        '<div class="wide"><small>ESTIMATED ARRIVAL · ' + esc(B.CITY) + "</small><b>" + (eta ? hhmm(eta, B.tz) : "--:--") + '</b><div class="ife-prog"><i style="width:' + (P.prog * 100).toFixed(1) + '%"></i></div><span>' + Math.round(P.prog * 100) + "% of the way</span></div></div>";
-    } else {
-      const nb = nearbySides(P, 3), L = nb.left, R = nb.right;
-      const col = (name, arr) => "<div><small>" + name + " SIDE</small>" + (arr.length ? arr.slice(0, 3).map(x => "<p><b>" + esc(x.n) + "</b> " + fmtInt(x.d) + " km</p>").join("") : "<p>Open sky</p>") + "</div>";
-      html = '<div class="ife-win">' + col("LEFT", L) + col("RIGHT", R) + "</div>";
-    }
-    const body = $("ifeBody");
-    if (swap) { body.classList.remove("in"); void body.offsetWidth; body.classList.add("in"); }
-    body.innerHTML = html;
-    const isvg = $("ifeSvg");
-    if (isvg) {
-      const r = isvg.getBoundingClientRect(), vw = 250, vh = r.width ? vw * r.height / r.width : 300;
-      const cx = +isvg.dataset.px, cy = +isvg.dataset.py;
-      isvg.setAttribute("viewBox", (cx - vw / 2).toFixed(1) + " " + (cy - vh * 0.52).toFixed(1) + " " + vw + " " + vh.toFixed(1));
-    }
-    $("ifeDots").innerHTML = IFE_PANES.map((p, k) => "<i" + (k === ifeIdx ? ' class="on"' : "") + "></i>").join("");
-    $("ifeSrc").textContent = P.src === "gps" ? "LIVE GPS" : P.src === "est" ? "ESTIMATED POSITION" : "PREVIEW";
-  }
-  $("ifeBody").addEventListener("click", () => { ifeIdx = (ifeIdx + 1) % IFE_PANES.length; renderIFE(true); clearInterval(ifeTimer); ifeTimer = setInterval(() => { ifeIdx = (ifeIdx + 1) % IFE_PANES.length; renderIFE(true); }, 9000); });
-  $("ifeClose").addEventListener("click", closeIFE);
-  $("openIFE").addEventListener("click", openIFE);
-  document.addEventListener("keydown", e => { if (e.key === "Escape") closeIFE(); });
 
   // first visit: the first untorn stub gives a little wiggle so you know it moves
   let hinted = false;
