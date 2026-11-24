@@ -3,6 +3,15 @@
   // ================= constants =================
   const LS_KEY = "flightdeck.v1", LS_GPS = "flightdeck.gpsOn";
   const PLANE_PATH = "M0,-10 L1.6,-3 L9,2 L9,4 L1.6,1.5 L1.2,7 L3.5,9 L3.5,10.5 L0,9.5 L-3.5,10.5 L-3.5,9 L-1.2,7 L-1.6,1.5 L-9,4 L-9,2 L-1.6,-3 Z";
+  // things you can log in the journal, each with its own rubber stamp
+  const MOMENT_KINDS = {
+    ate: { label: "Ate", word: "ATE", ink: "#c2410c", ph: "Litti chokha at the station", icon: '<path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M16.5 3C14.5 4.5 14 7 14 10h2.5v11"/>' },
+    saw: { label: "Saw", word: "SAW", ink: "#1f6f8b", ph: "Golghar at sunset", icon: '<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>' },
+    did: { label: "Did", word: "DID", ink: "#2d7a4c", ph: "Boat ride on the Ganges", icon: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>' },
+    bought: { label: "Bought", word: "BOUGHT", ink: "#8a3c8f", ph: "Bangles from the market", icon: '<path d="M5 8h14l-1 13H6zM9 8V6a3 3 0 0 1 6 0v2"/>' },
+    met: { label: "Met", word: "MET", ink: "#b0294a", ph: "Cousins at Nani's", icon: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2c3 .2 5.5 2.4 5.5 5.8"/>' },
+    stayed: { label: "Stayed", word: "STAYED", ink: "#3b47a8", ph: "Nani's house", icon: '<path d="M3 11l9-7 9 7M5 10v10h14V10M10 20v-6h4v6"/>' }
+  };
   const CHECK_SVG = '<svg viewBox="0 0 12 12"><path d="M2 6.5 5 9.2 10 3"/></svg>';
   const uid = () => Math.random().toString(36).slice(2, 9);
   const $ = id => document.getElementById(id);
@@ -74,7 +83,7 @@
     return out;
   }
   function defaults() {
-    return { v: 3, updatedAt: 0, name: "", flights: [], stamps: [], ppStickers: [], ann: {}, annOn: true, annVoice: false, inr: { rate: 0, at: 0, manual: false }, checklist: defaultChecklist() };
+    return { v: 3, updatedAt: 0, name: "", flights: [], stamps: [], ppStickers: [], moments: [], ann: {}, annOn: true, annVoice: false, inr: { rate: 0, at: 0, manual: false }, checklist: defaultChecklist() };
   }
   const code3 = s => /^[A-Za-z]{3}$/.test(String(s || "")) ? String(s).toUpperCase() : "";
   const cleanStickers = arr => Array.isArray(arr) ? arr.filter(k => k && typeof k.t === "string").slice(-20).map(k => ({ t: String(k.t), x: Math.max(0, Math.min(100, +k.x || 0)), y: Math.max(0, Math.min(100, +k.y || 0)), r: +k.r || 0, s: Math.max(0.6, Math.min(1.6, +k.s || 1)), pg: k.pg != null ? String(k.pg) : undefined })) : [];
@@ -100,6 +109,8 @@
       return { id, kind: kind === "arr" ? "arr" : "dep", code: code3(code) || "???", at: +x.at || Date.now(), r: +x.r || 0, dx: +x.dx || 0 };
     }).filter(x => x.code !== "???");
     out.ppStickers = cleanStickers(s.ppStickers);
+    out.moments = (Array.isArray(s.moments) ? s.moments : []).filter(m => m && m.id).map(m => ({ id: String(m.id), kind: MOMENT_KINDS[m.kind] ? m.kind : "did", what: String(m.what || "").slice(0, 80), note: String(m.note || "").slice(0, 400),
+      where: String(m.where || "").slice(0, 40), at: +m.at || Date.now(), hearts: Math.max(0, Math.min(3, +m.hearts || 0)), photo: !!m.photo, x: m.x == null ? null : +m.x, y: m.y == null ? null : +m.y, r: +m.r || 0 }));
     out.ann = s.ann && typeof s.ann === "object" ? s.ann : {};
     out.annOn = s.annOn !== false; out.annVoice = !!s.annVoice;
     out.inr = s.inr && typeof s.inr === "object" ? { rate: +s.inr.rate || 0, at: +s.inr.at || 0, manual: !!s.inr.manual } : d.inr;
@@ -1629,6 +1640,11 @@
     const per = 5, n = Math.max(2, Math.ceil(stamps.length / per) + (stamps.length % per === 0 ? 1 : 0));
     const pages = [{ k: "cover" }, { k: "info" }, { k: "record" }, { k: "map" }];
     for (let i = 0; i < n; i++) pages.push({ k: "visa", i, stamps: stamps.slice(i * per, i * per + per) });
+    // journal: a page per day (4 moments a page), plus a fresh page for today
+    const ms = state.moments.slice().sort((a, b) => a.at - b.at), dk = ms2 => new Date(ms2).toDateString();
+    let j = 0, cur = null;
+    ms.forEach(m => { if (!cur || cur.day !== dk(m.at) || cur.moments.length >= 4) { cur = { k: "journal", i: j++, day: dk(m.at), at: m.at, moments: [] }; pages.push(cur); } cur.moments.push(m); });
+    if (!cur || cur.day !== dk(Date.now()) || cur.moments.length >= 4) pages.push({ k: "journal", i: j++, day: dk(Date.now()), at: Date.now(), moments: [] });
     pages.push({ k: "countries" });
     return pages;
   }
@@ -1689,13 +1705,15 @@
         '<div class="rec-list"><small>LONGEST FLIGHT</small><p><b>' + st.longest.f.from + " → " + st.longest.f.to + "</b><span>" + fmtInt(st.longest.L) + " km</span></p>" +
         (st.flights > 1 && Math.abs(st.shortest.L - st.longest.L) > 1 ? "<small>SHORTEST FLIGHT</small><p><b>" + st.shortest.f.from + " → " + st.shortest.f.to + "</b><span>" + fmtInt(st.shortest.L) + " km</span></p>" : "") +
         "<small>TOP AIRPORTS</small>" + top.map(([c, n]) => "<p><b>" + c + " · " + esc(ap(c).city) + "</b><span>" + n + "×</span></p>").join("") +
-        (als.length ? "<small>AIRLINES</small>" + als.map(([a, n]) => "<p><b>" + esc(a) + "</b><span>" + n + "×</span></p>").join("") : "") + "</div>" +
+        (als.length ? "<small>AIRLINES</small>" + als.map(([a, n]) => "<p><b>" + esc(a) + "</b><span>" + n + "×</span></p>").join("") : "") +
+        (state.moments.length ? "<small>JOURNAL</small><p><b>" + state.moments.length + " moment" + (state.moments.length === 1 ? "" : "s") + "</b><span>" + Object.keys(MOMENT_KINDS).map(k => [k, state.moments.filter(m => m.kind === k).length]).filter(x => x[1]).map(([k, n]) => n + " " + MOMENT_KINDS[k].word.toLowerCase()).join(" · ") + "</span></p>" : "") + "</div>" +
         '<p class="rec-year">' + yr + ": " + ys.flights + " flight" + (ys.flights === 1 ? "" : "s") + " · " + fmtInt(ys.km) + " km · " + ys.countries.size + " countr" + (ys.countries.size === 1 ? "y" : "ies") + "</p>"
         : '<div class="rec-empty"><b>Your record starts with your first landing.</b><p>Every flight you take adds to it: distance, hours in the air, countries, airports and airlines.</p>' + (st.upcoming ? "<p>" + st.upcoming + " flight" + (st.upcoming === 1 ? "" : "s") + " coming up.</p>" : "") + "</div>";
       return ppSheet("record", "record", '<div class="pp-head">TRAVEL RECORD<span>ALL TIME</span></div>' + body + '<button class="rec-share" id="ppShare">Share my passport</button>', idx);
     }
     if (pg.k === "map") return ppSheet("", "map", '<div class="pp-head">ROUTES FLOWN<span>' + state.flights.length + " FLIGHT" + (state.flights.length === 1 ? "" : "S") + "</span></div>" + worldMapSVG(300, 250) +
       '<p class="fine">Solid lines are flights you\'ve taken, dashed ones are coming up. Countries you\'ve been stamped in are shaded.</p>', idx);
+    if (pg.k === "journal") return journalPage(pg, idx);
     if (pg.k === "countries") {
       const st = travelStats(), list = [...st.countries.entries()].sort((a, b) => a[1] - b[1]);
       return ppSheet("", "countries", '<div class="pp-head">COUNTRIES VISITED<span>' + list.length + "</span></div>" +
@@ -1725,7 +1743,7 @@
     const book = $("ppBook");
     book.innerHTML = pageHTML(pages[ppPage], ppPage);
     book.classList.toggle("closed", ppPage === 0);
-    $("ppCount").textContent = state.stamps.length + " STAMP" + (state.stamps.length === 1 ? "" : "S");
+    $("ppCount").textContent = state.stamps.length + " STAMP" + (state.stamps.length === 1 ? "" : "S") + (state.moments.length ? " · " + state.moments.length + " MOMENT" + (state.moments.length === 1 ? "" : "S") : "");
     const fresh = book.querySelector(".st-wrap.fresh");
     if (fresh) { setTimeout(stampSound, 330); pages[ppPage].stamps && pages[ppPage].stamps.forEach(s => freshStamps.delete(s.id)); }
     const nm = $("ppName");
@@ -1809,7 +1827,9 @@
     s.connect(f); f.connect(g); g.connect(a.destination); s.start(t, Math.random()); s.stop(t + 0.3);
   }
   $("ppBook").addEventListener("click", e => {
-    if (stickerMode) return;
+    if (stickerMode || stamping) return;
+    const mo = e.target.closest("[data-moment]"); if (mo) { openMoment(mo.dataset.moment); return; }
+    if (e.target.closest("[data-act=log]")) { openMomentEditor(); return; }
     const b = e.target.closest("[data-stamp]");
     if (b) { const [kind, fid] = b.dataset.stamp.split(":"); const f = state.flights.find(x => x.id === fid); if (f) { addStamp(kind, f); renderPassport(); } return; }
     if (e.target.closest("input, button, a")) return;
@@ -1820,7 +1840,7 @@
   let ppSwipe = null;
   $("ppBook").addEventListener("touchstart", e => { if (stickerMode || e.touches.length !== 1 || e.target.closest("input")) return; ppSwipe = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: true });
   $("ppBook").addEventListener("touchend", e => {
-    if (!ppSwipe) return; const t = e.changedTouches[0], dx = t.clientX - ppSwipe.x, dy = t.clientY - ppSwipe.y; ppSwipe = null;
+    if (!ppSwipe || stamping) { ppSwipe = null; return; } const t = e.changedTouches[0], dx = t.clientX - ppSwipe.x, dy = t.clientY - ppSwipe.y; ppSwipe = null;
     if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) { e.preventDefault(); turnPage(dx < 0 ? 1 : -1); }
   });
   function updateTabDot() { const b = document.querySelector('nav.tabs [data-tab="passport"]'); if (b) b.classList.toggle("dot", ppNewDot && curTab !== "passport"); }
@@ -1828,6 +1848,154 @@
     if (freshStamps.size) { const pages = ppPages(); const k = pages.findIndex(p => p.stamps && p.stamps.some(s => freshStamps.has(s.id))); if (k > 0) ppPage = k; }
     ppNewDot = false; updateTabDot(); renderPassport();
   }
+
+
+  // ================= TRAVEL JOURNAL: log a moment, then stamp it onto the page yourself =================
+  // photos live in IndexedDB on the phone (too big for normal storage)
+  const photoURL = new Map();
+  const photoDB = new Promise(res => { try { const r = indexedDB.open("flightdeck-photos", 1); r.onupgradeneeded = () => r.result.createObjectStore("p"); r.onsuccess = () => res(r.result); r.onerror = () => res(null); } catch (e) { res(null); } });
+  photoDB.then(db => { if (!db) return; const q = db.transaction("p").objectStore("p").openCursor(); q.onsuccess = () => { const c = q.result; if (c) { photoURL.set(c.key, c.value); c.continue(); } else if (curTab === "passport") renderPassport(); }; });
+  const photoPut = (id, data) => { photoURL.set(id, data); photoDB.then(db => { if (db) db.transaction("p", "readwrite").objectStore("p").put(data, id); }); };
+  const photoDel = id => { photoURL.delete(id); photoDB.then(db => { if (db) db.transaction("p", "readwrite").objectStore("p").delete(id); }); };
+  async function readPhoto(file) {
+    const url = URL.createObjectURL(file), img = new Image(); img.src = url;
+    try { await img.decode(); } catch (e) { URL.revokeObjectURL(url); throw e; }
+    const k = Math.min(1, 1100 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+    return c.toDataURL("image/jpeg", 0.8);
+  }
+  // where you are right now, worked out from your flights (no GPS, so no battery)
+  function placeNow() {
+    const now = Date.now();
+    for (const f of state.flights) { const t = legTimes(f); if (t && now >= t.dep && now < t.arr) return "In the air"; }
+    const landed = state.flights.map(f => ({ f, t: legTimes(f) })).filter(x => x.t && x.t.arr <= now).sort((a, b) => b.t.arr - a.t.arr)[0];
+    if (landed) return ap(landed.f.to).city;
+    const next = flightsOrdered().up[0]; return next ? ap(next.from).city : "";
+  }
+  const kindIcon = (k, cls) => '<svg class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + MOMENT_KINDS[k].icon + "</svg>";
+  const HEART = '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>';
+  function momentStamp(m) {
+    const K = MOMENT_KINDS[m.kind], d = new Date(m.at), date = pad(d.getDate()) + " " + MONS[d.getMonth()] + " " + String(d.getFullYear()).slice(2);
+    const ring = K.word + " · " + (m.where || "ON THE ROAD").toUpperCase() + " · " + date + " ·", pid = "mr" + hashStr(m.id).toString(36);
+    const hearts = m.hearts ? '<g transform="translate(' + (60 - m.hearts * 6.5) + ' 80)">' + [...Array(m.hearts)].map((_, i) => '<path transform="translate(' + (i * 13) + ' 0) scale(.5)" d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" fill="currentColor"/>').join("") + "</g>" : "";
+    return '<svg viewBox="0 0 120 120" class="ink mo-ink" style="color:' + K.ink + '"><circle cx="60" cy="60" r="55" fill="none" stroke="currentColor" stroke-width="3.6"/><circle cx="60" cy="60" r="41" fill="none" stroke="currentColor" stroke-width="1.4"/>' +
+      '<defs><path id="' + pid + '" d="M60 60 m-48 0 a48 48 0 1 1 96 0 a48 48 0 1 1 -96 0"/></defs><text class="st-s"><textPath href="#' + pid + '" startOffset="0" textLength="296" lengthAdjust="spacingAndGlyphs">' + esc(ring) + "</textPath></text>" +
+      '<g transform="translate(' + (hearts ? "41 30" : "41 38") + ') scale(1.6)" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + K.icon + "</g>" + hearts + "</svg>";
+  }
+  function momentHTML(m, fresh) {
+    const ph = m.photo && photoURL.get(m.id);
+    return '<div class="mo' + (ph ? " has-photo" : "") + (fresh ? " fresh" : "") + '" data-moment="' + esc(m.id) + '" style="left:' + m.x + "%;top:" + m.y + "%;--r:" + m.r + 'deg">' +
+      (ph ? '<div class="pol"><i class="tape" aria-hidden="true"></i><img src="' + ph + '" alt=""><span class="cap">' + esc(m.what) + '</span></div><div class="mo-st">' + momentStamp(m) + "</div>"
+        : '<div class="mo-st solo">' + momentStamp(m) + '</div><span class="cap solo">' + esc(m.what) + "</span>") + "</div>";
+  }
+  let freshMoment = null, stamping = null;
+  const J_SPOTS = [[32, 30], [68, 42], [32, 66], [68, 80]];
+  function journalPage(pg, idx) {
+    const d = new Date(pg.at), today = pg.day === new Date().toDateString();
+    const where = [...new Set(pg.moments.map(m => m.where).filter(Boolean))].slice(0, 2).join(" · ");
+    let inner = '<div class="pp-head">JOURNAL · ' + (today ? "TODAY" : DAYS[d.getDay()] + " " + d.getDate() + " " + MONS[d.getMonth()]) + "<span>" + esc((where || placeNow() || "").toUpperCase()) + "</span></div>";
+    pg.moments.forEach((m, k) => {
+      if (stamping && stamping.id === m.id) return;
+      const mm = m.x == null ? Object.assign({}, m, { x: J_SPOTS[k][0], y: J_SPOTS[k][1] }) : m;
+      inner += momentHTML(mm, freshMoment === m.id);
+    });
+    if (!pg.moments.length && !(stamping)) inner += '<button class="j-empty" data-act="log">' + kindIcon("did") + "<b>Log a moment</b><small>Something you ate, saw or bought today. Then stamp it in.</small></button>";
+    return ppSheet("journal", "j" + pg.i, inner, idx);
+  }
+  function journalPageIndex(id) { return ppPages().findIndex(p => p.k === "journal" && p.moments.some(m => m.id === id)); }
+
+  // ---------- the log sheet ----------
+  let draftPhoto = null;
+  function openMomentEditor(id) {
+    const m = id ? state.moments.find(x => x.id === id) : null;
+    let kind = m ? m.kind : "ate", hearts = m ? m.hearts : 0;
+    draftPhoto = m && m.photo ? photoURL.get(m.id) || null : null;
+    sheet.innerHTML = '<form id="moForm" class="mo-form" autocomplete="off"><h2>' + (m ? "Edit moment" : "Log a moment") + "</h2>" +
+      '<div class="mo-kinds" role="radiogroup">' + Object.keys(MOMENT_KINDS).map(k => '<button type="button" role="radio" data-kind="' + k + '" style="--ink:' + MOMENT_KINDS[k].ink + '">' + kindIcon(k) + "<span>" + MOMENT_KINDS[k].label + "</span></button>").join("") + "</div>" +
+      '<div class="field"><label for="moWhat">What was it?</label><input type="text" id="moWhat" maxlength="80" value="' + esc(m ? m.what : "") + '"></div>' +
+      '<div class="field"><label for="moNote">A line for the journal <span class="fine">(optional)</span></label><textarea id="moNote" rows="2" maxlength="400" placeholder="How was it? Who were you with?">' + esc(m ? m.note : "") + "</textarea></div>" +
+      '<div class="mo-row"><label class="mo-photo" id="moPhotoBtn"><input type="file" accept="image/*" id="moPhoto" hidden><span id="moPhotoPrev"></span></label>' +
+      '<div class="mo-side"><div class="field"><label>How good?</label><div class="mo-hearts" id="moHearts">' + [1, 2, 3].map(n => '<button type="button" data-h="' + n + '" aria-label="' + n + ' hearts"><svg viewBox="0 0 24 24">' + HEART + "</svg></button>").join("") + "</div></div>" +
+      '<div class="field"><label for="moWhere">Where</label><input type="text" id="moWhere" maxlength="40" value="' + esc(m ? m.where : placeNow()) + '" placeholder="City"></div></div></div>' +
+      '<p class="fine" id="moErr" style="color:var(--red)"></p>' +
+      '<div class="actions"><button type="button" class="btn ghost" id="cancelSheet">Cancel</button><button type="submit" class="btn red">' + (m ? "Save" : "Stamp it") + "</button></div></form>";
+    scrim.classList.add("on");
+    const setKind = k => { kind = k; sheet.querySelectorAll("[data-kind]").forEach(b => b.setAttribute("aria-checked", b.dataset.kind === k)); $("moWhat").placeholder = MOMENT_KINDS[k].ph; };
+    const setHearts = n => { hearts = n; sheet.querySelectorAll("[data-h]").forEach(b => b.classList.toggle("on", +b.dataset.h <= n)); };
+    const showPhoto = () => { $("moPhotoPrev").innerHTML = draftPhoto ? '<img src="' + draftPhoto + '" alt=""><b class="mo-x" id="moPhotoX">×</b>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg><small>Add a photo</small>'; $("moPhotoBtn").classList.toggle("on", !!draftPhoto); };
+    setKind(kind); setHearts(hearts); showPhoto();
+    sheet.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => { setKind(b.dataset.kind); snapSound(); });
+    sheet.querySelectorAll("[data-h]").forEach(b => b.onclick = () => { setHearts(hearts === +b.dataset.h ? 0 : +b.dataset.h); if (navigator.vibrate) navigator.vibrate(8); });
+    $("moPhotoBtn").addEventListener("click", e => { if (e.target.id === "moPhotoX") { e.preventDefault(); draftPhoto = null; showPhoto(); } });
+    $("moPhoto").onchange = async e => { const f = e.target.files && e.target.files[0]; if (!f) return; $("moPhotoPrev").innerHTML = "<small>Developing…</small>"; try { draftPhoto = await readPhoto(f); } catch (err) { $("moErr").textContent = "Couldn't read that photo. Try another one."; } showPhoto(); };
+    $("cancelSheet").onclick = closeSheet;
+    $("moForm").onsubmit = e => {
+      e.preventDefault();
+      const what = $("moWhat").value.trim();
+      if (!what) { $("moErr").textContent = "Write what it was, even just a word."; $("moWhat").focus(); return; }
+      const fields = { kind, what, note: $("moNote").value.trim(), where: $("moWhere").value.trim(), hearts, photo: !!draftPhoto };
+      if (m) {
+        Object.assign(m, fields); if (draftPhoto) photoPut(m.id, draftPhoto); else photoDel(m.id);
+        commit({ quiet: true }); closeSheet(); renderPassport(); toast("Saved"); return;
+      }
+      const nm = Object.assign({ id: uid(), at: Date.now(), x: null, y: null, r: +(Math.random() * 16 - 8).toFixed(1) }, fields);
+      if (draftPhoto) photoPut(nm.id, draftPhoto);
+      state.moments.push(nm); commit({ quiet: true }); closeSheet();
+      startStamping(nm);
+    };
+    if (!m) setTimeout(() => $("moWhat").focus(), 350);
+  }
+
+  // ---------- the moment, up close ----------
+  function openMoment(id) {
+    const m = state.moments.find(x => x.id === id); if (!m) return;
+    const K = MOMENT_KINDS[m.kind], ph = m.photo && photoURL.get(m.id), d = new Date(m.at);
+    sheet.innerHTML = '<div class="mo-view">' + (ph ? '<div class="pol big"><i class="tape" aria-hidden="true"></i><img src="' + ph + '" alt=""></div>' : '<div class="mo-view-st">' + momentStamp(m) + "</div>") +
+      '<div class="mo-kind" style="color:' + K.ink + '">' + kindIcon(m.kind) + K.word + (m.hearts ? ' <span class="mo-h">' + [...Array(m.hearts)].map(() => '<svg viewBox="0 0 24 24">' + HEART + "</svg>").join("") + "</span>" : "") + "</div>" +
+      '<h2 class="hand">' + esc(m.what) + "</h2>" + (m.note ? '<p class="hand note-hand">' + esc(m.note) + "</p>" : "") +
+      '<p class="fine">' + esc(m.where || "Somewhere") + " · " + DAYS[d.getDay()] + " " + d.getDate() + " " + MONS[d.getMonth()] + " " + d.getFullYear() + ", " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + "</p>" +
+      '<div class="actions"><button class="btn danger" id="moDel">Delete</button><span style="flex:1"></span><button class="btn ghost" id="moMove">Move</button><button class="btn ghost" id="moEdit">Edit</button><button class="btn primary" id="cancelSheet">Done</button></div></div>';
+    scrim.classList.add("on");
+    $("cancelSheet").onclick = closeSheet;
+    $("moEdit").onclick = () => openMomentEditor(id);
+    $("moMove").onclick = () => { closeSheet(); startStamping(m); };
+    $("moDel").onclick = e => { const b = e.currentTarget; if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Tap again to delete"; return; } state.moments = state.moments.filter(x => x.id !== id); photoDel(id); commit({ quiet: true }); closeSheet(); renderPassport(); toast("Moment removed"); };
+  }
+
+  // ---------- stamping it in: the stamp follows your finger, lift to slam it down ----------
+  const stamper = document.createElement("div"); stamper.className = "stamper"; stamper.innerHTML = '<div class="st-handle"></div><div class="st-block"><div class="st-face"></div></div>';
+  document.body.appendChild(stamper);
+  function startStamping(m) {
+    stamping = m;
+    if (curTab !== "passport") showTab("passport");
+    ppPage = Math.max(0, journalPageIndex(m.id)); renderPassport();
+    $("ppBook").classList.add("stamping"); $("stampHint").classList.add("on");
+    stamper.querySelector(".st-face").innerHTML = momentStamp(m); stamper.style.color = MOMENT_KINDS[m.kind].ink;
+    const r = $("ppBook").getBoundingClientRect(); moveStamper(r.left + r.width / 2, r.top + r.height * 0.55); stamper.className = "stamper on hover";
+  }
+  function moveStamper(x, y) { stamper.style.left = x + "px"; stamper.style.top = y + "px"; }
+  function slam(x, y) {
+    const m = stamping, sheetEl2 = $("ppBook").querySelector(".pp-sheet:not(.leaf)"); if (!m || !sheetEl2) return;
+    const r = sheetEl2.getBoundingClientRect();
+    m.x = +Math.max(16, Math.min(84, (x - r.left) / r.width * 100)).toFixed(1);
+    m.y = +Math.max(16, Math.min(88, (y - r.top) / r.height * 100)).toFixed(1);
+    moveStamper(x, y); stamper.className = "stamper on slam";
+    setTimeout(() => {
+      stampSound(); if (navigator.vibrate) navigator.vibrate([18, 30, 8]);
+      stamping = null; freshMoment = m.id; commit({ quiet: true });
+      $("ppBook").classList.remove("stamping"); $("stampHint").classList.remove("on");
+      renderPassport(); freshMoment = null;
+      if (m.photo) setTimeout(tapeSound, 380);
+    }, 150);
+    setTimeout(() => { stamper.className = "stamper"; }, 650);
+  }
+  const bookEl = $("ppBook");
+  bookEl.addEventListener("pointerdown", e => { if (!stamping) return; e.preventDefault(); stamper.className = "stamper on lift"; moveStamper(e.clientX, e.clientY); try { bookEl.setPointerCapture(e.pointerId); } catch (err) {} });
+  bookEl.addEventListener("pointermove", e => { if (!stamping) return; moveStamper(e.clientX, e.clientY); });
+  bookEl.addEventListener("pointerup", e => { if (!stamping) return; e.preventDefault(); slam(e.clientX, e.clientY); });
+  $("stampAuto").addEventListener("click", () => { if (!stamping) return; const sh = bookEl.querySelector(".pp-sheet:not(.leaf)"), r = sh.getBoundingClientRect(), pg = ppPages()[ppPage], k = pg.moments ? pg.moments.indexOf(stamping) : 0, sp = J_SPOTS[Math.max(0, k) % 4]; slam(r.left + r.width * sp[0] / 100, r.top + r.height * sp[1] / 100); });
+  $("logMomentBtn").addEventListener("click", () => openMomentEditor());
 
   // ================= SEATBACK SCREEN =================
   let ifeIdx = 0, ifeTimer = null, ifeTick = null;
