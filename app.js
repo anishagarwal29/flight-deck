@@ -3,15 +3,71 @@
   // ================= constants =================
   const LS_KEY = "flightdeck.v1", LS_GPS = "flightdeck.gpsOn";
   const PLANE_PATH = "M0,-10 L1.6,-3 L9,2 L9,4 L1.6,1.5 L1.2,7 L3.5,9 L3.5,10.5 L0,9.5 L-3.5,10.5 L-3.5,9 L-1.2,7 L-1.6,1.5 L-9,4 L-9,2 L-1.6,-3 Z";
-  // things you can log in the journal, each with its own rubber stamp
-  const MOMENT_KINDS = {
-    ate: { label: "Ate", word: "ATE", ink: "#c2410c", ph: "Litti chokha at the station", icon: '<path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M16.5 3C14.5 4.5 14 7 14 10h2.5v11"/>' },
-    saw: { label: "Saw", word: "SAW", ink: "#1f6f8b", ph: "Golghar at sunset", icon: '<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>' },
-    did: { label: "Did", word: "DID", ink: "#2d7a4c", ph: "Boat ride on the Ganges", icon: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>' },
-    bought: { label: "Bought", word: "BOUGHT", ink: "#8a3c8f", ph: "Bangles from the market", icon: '<path d="M5 8h14l-1 13H6zM9 8V6a3 3 0 0 1 6 0v2"/>' },
-    met: { label: "Met", word: "MET", ink: "#b0294a", ph: "Cousins at Nani's", icon: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2c3 .2 5.5 2.4 5.5 5.8"/>' },
-    stayed: { label: "Stayed", word: "STAYED", ink: "#3b47a8", ph: "Nani's house", icon: '<path d="M3 11l9-7 9 7M5 10v10h14V10M10 20v-6h4v6"/>' }
+  // things you can log in the journal; each becomes a different bit of travel paper
+  const ICONS = {
+    utensils: '<path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M16.5 3C14.5 4.5 14 7 14 10h2.5v11"/>',
+    cup: '<path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM16 10h2a2.5 2.5 0 0 1 0 5h-2M8 2.5c-1 1.2 1 2 0 3.2M12 2.5c-1 1.2 1 2 0 3.2"/>',
+    cone: '<path d="M7 11l5 11 5-11M6.5 10.5a5.5 5.5 0 1 1 11 0z"/>',
+    bowl: '<path d="M3 11h18a9 9 0 0 1-18 0zM9 5c1 1.5-1 2.5 0 4M13 4c1 1.5-1 2.5 0 4M8 21h8"/>',
+    eye: '<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    temple: '<path d="M12 2v3M8 9l4-4 4 4M6 13l6-4 6 4M4 21V13h16v8M10 21v-5h4v5"/>',
+    sun: '<circle cx="12" cy="14" r="4"/><path d="M2 20h20M12 4v3M4.5 7.5l2 2M19.5 7.5l-2 2M1.5 14h3M19.5 14h3"/>',
+    mountain: '<path d="M2 20l7-12 4 6 3-4 6 10zM8 10l1.5 2 1.5-1.5"/>',
+    building: '<path d="M3 21h18M5 21V10l7-6 7 6v11M9 21v-6h6v6M9 11h.01M15 11h.01"/>',
+    flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+    ball: '<circle cx="12" cy="12" r="9"/><path d="M5.5 6c3 2 3 10 0 12M18.5 6c-3 2-3 10 0 12"/>',
+    music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+    bag: '<path d="M5 8h14l-1 13H6zM9 8V6a3 3 0 0 1 6 0v2"/>',
+    gift: '<path d="M3 9h18v4H3zM5 13v8h14v-8M12 9v12M12 9C9 9 7 7.5 8 6s3 0 4 3c1-3 3-4.5 4-3s-1 3-4 3"/>',
+    people: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2c3 .2 5.5 2.4 5.5 5.8"/>',
+    house: '<path d="M3 11l9-7 9 7M5 10v10h14V10M10 20v-6h4v6"/>',
+    bed: '<path d="M3 19V6M3 15h18v4M21 15v-3a3 3 0 0 0-3-3h-7v6"/><circle cx="7" cy="11" r="2"/>',
+    train: '<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M8 21l2-4M16 21l-2-4"/><circle cx="9" cy="14" r=".8"/><circle cx="15" cy="14" r=".8"/>',
+    car: '<path d="M4 16V11l2-5h12l2 5v5zM4 11h16"/><circle cx="7.5" cy="16.5" r="2"/><circle cx="16.5" cy="16.5" r="2"/>',
+    boat: '<path d="M3 15h18l-3 5H6zM12 3v12M12 4l6 9h-6"/>',
+    plane: '<path d="M21 15.5v-1.6l-7.6-4.6V4.6a1.4 1.4 0 0 0-2.8 0v4.7L3 13.9v1.6l7.6-2.3v4.4l-2.2 1.6v1.3l3.6-1 3.6 1v-1.3l-2.2-1.6v-4.4z"/>',
+    note: '<path d="M4 20l1-4L16 5l3 3L8 19zM14 7l3 3"/>'
   };
+  const MOMENT_KINDS = {
+    ate: { label: "Ate", word: "ATE", ink: "#c2410c", icon: "utensils", w: 30 },
+    saw: { label: "Saw", word: "SAW", ink: "#1f6f8b", icon: "eye", w: 27 },
+    did: { label: "Did", word: "DID", ink: "#b45309", icon: "flag", w: 44 },
+    bought: { label: "Bought", word: "BOUGHT", ink: "#7c4a1e", icon: "bag", w: 42 },
+    met: { label: "Met", word: "MET", ink: "#c8362d", icon: "people", w: 40 },
+    stayed: { label: "Stayed", word: "STAYED", ink: "#3b47a8", icon: "house", w: 21 },
+    rode: { label: "Rode", word: "RODE", ink: "#2d7a4c", icon: "train", w: 44 },
+    felt: { label: "Felt", word: "FELT", ink: "#8a6414", icon: "note", w: 32 }
+  };
+  // reads what you typed and picks the right kind of paper for it (first match wins)
+  const MOMENT_RULES = [
+    [/\b(train|railway|station|metro|rajdhani|shatabdi|vande)\b/, "rode", "train"],
+    [/\b(flight|plane|airport|flew|flying)\b/, "rode", "plane"],
+    [/\b(boat|ferry|cruise|kayak|canoe)\b/, "rode", "boat"],
+    [/\b(rickshaw|auto|tuk.?tuk|taxi|cab|uber|ola|grab|bus|car|drive|drove|scooter|bike|cycled?|ride)\b/, "rode", "car"],
+    [/\b(chai|tea|coffee|lassi|juice|milkshake|shake|smoothie|coconut|drink|drinks|soda|coke|lemonade|nimbu|sharbat)\b/, "ate", "cup"],
+    [/\b(ice ?cream|kulfi|dessert|sweets?|mithai|jalebis?|gulab|rasgulla|rasmalai|ladd?oos?|barfi|halwa|cake|chocolate|pastry|cookies?|donuts?|kheer|peda|sandesh|khaja|thekua)\b/, "ate", "cone"],
+    [/\b(biryani|rice|noodles|maggi|dal|daal|curry|thali|soup|khichdi|pulao|ramen|bowl)\b/, "ate", "bowl"],
+    [/\b(ate|eat|eating|food|lunch|dinner|breakfast|brunch|snacks?|restaurant|cafe|dhaba|litti|chokha|samosas?|pakor[ae]s?|dosa|idli|parathas?|roti|naan|paneer|momos?|chaat|pani ?puri|golgappas?|puchkas?|vada|pav|bhaji|kachori|poha|burgers?|pizza|pasta|sandwich|fries|kfc|mcdonald'?s|subway|chicken|mutton|fish|eggs?|fruits?|mangoe?s?|litchis?|lychees?|delicious|yummy|tasty|spicy|cooked|meal)\b/, "ate", "utensils"],
+    [/\b(nan[ai]|nanaji|naniji|dad[ai]|dadaji|dadiji|grand(ma|pa|mum|mother|father|parents?|dad)s?|cousins?|uncles?|aunt(y|ie|s)?|chach[ai]|mam[ai]|mamaji|mausi|bua|bhaiya|didi|bhai|sisters?|brothers?|family|relatives?|friends?|met|meeting|neighbou?rs?|guests?|people)\b/, "met", "people"],
+    [/\b(hotel|hostel|resort|room|slept|sleep|nap|bed|airbnb|check.?in)\b/, "stayed", "bed"],
+    [/\b(stayed|stay|staying|house|home|ghar|flat|apartment)\b/, "stayed", "house"],
+    [/\b(gifts?|presents?|souvenirs?)\b/, "bought", "gift"],
+    [/(₹)|\b(bought|buy|buying|shopping|shopped|market|bazaar|mall|store|shop|sale|bangles?|sarees?|saris?|kurtas?|clothes|shoes|books?|rs|rupees?)\b/, "bought", "bag"],
+    [/\b(temples?|mandir|mosque|masjid|church|gurudwara|shrine|stupa|monastery|cathedral|dargah|ghat)\b/, "saw", "temple"],
+    [/\b(sunset|sunrise|sun|moon|stars|sky)\b/, "saw", "sun"],
+    [/\b(mountains?|hills?|lake|river|ganga|ganges|beach|sea|ocean|waterfall|park|garden|view|forest|fields?)\b/, "saw", "mountain"],
+    [/\b(museum|fort|palace|monument|tower|golghar|bridge|building|gate|statue|zoo|gallery|ruins|tomb)\b/, "saw", "building"],
+    [/\b(saw|see|seen|watched|watch|movie|film|looked)\b/, "saw", "eye"],
+    [/\b(cricket|football|badminton|tennis|games?|played|play|match|swim|swam|swimming|gym|ran|run)\b/, "did", "ball"],
+    [/\b(dance|danced|music|concert|songs?|sang|wedding|shaadi|party|sangeet|festival|diwali|holi|chhath|puja|pooja|celebrat\w*)\b/, "did", "music"],
+    [/\b(felt|feel|feeling|missed|miss|missing|homesick|happy|sad|tired|bored|excited|nervous|thinking|thought|grateful|lonely|scared|proud|love)\b/, "felt", "note"]
+  ];
+  // the word that comes first in what you wrote decides it ("litti chokha at the station" is food, not a train)
+  function detectMoment(text) {
+    const t = " " + String(text || "").toLowerCase() + " "; let best = null;
+    MOMENT_RULES.forEach(([re, kind, icon]) => { const mm = re.exec(t); if (mm && (!best || mm.index < best.i)) best = { i: mm.index, kind, icon }; });
+    return best && { kind: best.kind, icon: best.icon };
+  }
   const CHECK_SVG = '<svg viewBox="0 0 12 12"><path d="M2 6.5 5 9.2 10 3"/></svg>';
   const uid = () => Math.random().toString(36).slice(2, 9);
   const $ = id => document.getElementById(id);
@@ -109,7 +165,7 @@
       return { id, kind: kind === "arr" ? "arr" : "dep", code: code3(code) || "???", at: +x.at || Date.now(), r: +x.r || 0, dx: +x.dx || 0 };
     }).filter(x => x.code !== "???");
     out.ppStickers = cleanStickers(s.ppStickers, 200);
-    out.moments = (Array.isArray(s.moments) ? s.moments : []).filter(m => m && m.id).map(m => ({ id: String(m.id), kind: MOMENT_KINDS[m.kind] ? m.kind : "did", what: String(m.what || "").slice(0, 80), note: String(m.note || "").slice(0, 400),
+    out.moments = (Array.isArray(s.moments) ? s.moments : []).filter(m => m && m.id).map(m => ({ id: String(m.id), kind: MOMENT_KINDS[m.kind] ? m.kind : "did", icon: ICONS[m.icon] ? m.icon : (MOMENT_KINDS[m.kind] || MOMENT_KINDS.did).icon, what: String(m.what || "").slice(0, 80), note: String(m.note || "").slice(0, 400),
       where: String(m.where || "").slice(0, 40), at: +m.at || Date.now(), hearts: Math.max(0, Math.min(3, +m.hearts || 0)), photo: !!m.photo, x: m.x == null ? null : +m.x, y: m.y == null ? null : +m.y, r: +m.r || 0 }));
     out.ann = s.ann && typeof s.ann === "object" ? s.ann : {};
     out.annOn = s.annOn !== false; out.annVoice = !!s.annVoice;
@@ -1437,9 +1493,42 @@
     cloud: '<path d="M22 74 Q6 72 8 58 Q10 44 26 46 Q28 26 48 26 Q66 26 70 42 Q90 40 92 58 Q92 74 76 74 Z" fill="#dff0fb" stroke="#7fb3dc" stroke-width="4"/>',
     india: '<defs><linearGradient id="tri" x1="0" y1="0" x2="0" y2="1"><stop offset=".33" stop-color="#f59a3a"/><stop offset=".33" stop-color="#ffffff"/><stop offset=".66" stop-color="#ffffff"/><stop offset=".66" stop-color="#2e8b47"/></linearGradient></defs><path d="' + INDIA_D + '" fill="url(#tri)" stroke="#1e2331" stroke-width="1.6" stroke-linejoin="round"/><circle cx="44" cy="46" r="4.5" fill="none" stroke="#2a3f8f" stroke-width="1.6"/>',
     badge: '<circle cx="50" cy="50" r="44" fill="#c8362d"/><circle cx="50" cy="50" r="37" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 3"/><text x="50" y="44" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="22" fill="#fff">SIN</text><path transform="translate(50 52) rotate(180) scale(.9)" fill="#fff" d="' + PLANE_PATH + '"/><text x="50" y="80" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="22" fill="#fff">PAT</text>',
-    voyage: '<path d="M4 38 L18 34 L18 66 L4 62 L10 50 Z" fill="#1c3f78"/><path d="M96 38 L82 34 L82 66 L96 62 L90 50 Z" fill="#1c3f78"/><rect x="14" y="30" width="72" height="40" rx="3" fill="#2a559c"/><text x="50" y="56" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="17" fill="#fff" letter-spacing="1">BON VOYAGE</text>'
+    voyage: '<path d="M4 38 L18 34 L18 66 L4 62 L10 50 Z" fill="#1c3f78"/><path d="M96 38 L82 34 L82 66 L96 62 L90 50 Z" fill="#1c3f78"/><rect x="14" y="30" width="72" height="40" rx="3" fill="#2a559c"/><text x="50" y="56" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="17" fill="#fff" letter-spacing="1">BON VOYAGE</text>',
+
+    // India sheet
+    samosa: '<path d="M50 10 L90 82 Q50 94 10 82 Z" fill="#e0a43c"/><path d="M50 10 L90 82 Q70 90 50 90 Z" fill="#c98a28"/><path d="M50 10 L50 90" stroke="#b07722" stroke-width="2"/><circle cx="36" cy="62" r="2.6" fill="#a86c1c"/><circle cx="62" cy="54" r="2.6" fill="#a86c1c"/><circle cx="66" cy="72" r="2.6" fill="#a86c1c"/><circle cx="32" cy="76" r="2.6" fill="#a86c1c"/>',
+    mango: '<path d="M50 16 C80 16 92 44 84 66 C76 88 46 94 30 82 C12 68 14 40 28 26 C34 20 42 16 50 16Z" fill="#f5b52e"/><path d="M84 66 C76 88 46 94 30 82 C46 84 66 78 74 60Z" fill="#e8892a"/><path d="M50 16 C52 8 58 4 64 6" stroke="#5b8a2e" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M58 10 C70 0 86 6 88 14 C74 20 62 16 58 10Z" fill="#3f9a4a"/><ellipse cx="38" cy="38" rx="6" ry="10" fill="#ffe08a" transform="rotate(30 38 38)"/>',
+    rickshaw: '<path d="M16 70 L16 42 Q16 22 40 20 L70 20 Q86 22 88 42 L90 70 Z" fill="#2f9a52"/><path d="M12 64 H92 V76 H12Z" fill="#f2c230"/><path d="M26 30 H52 V52 H22 Z" fill="#cfe9f7"/><path d="M58 30 H78 L80 52 H58 Z" fill="#cfe9f7"/><circle cx="28" cy="80" r="11" fill="#1e2331"/><circle cx="28" cy="80" r="4" fill="#bbb"/><circle cx="78" cy="80" r="11" fill="#1e2331"/><circle cx="78" cy="80" r="4" fill="#bbb"/>',
+    lotus: '<path d="M50 18 C64 38 64 62 50 80 C36 62 36 38 50 18Z" fill="#ef6fa0"/><path d="M50 80 C30 76 16 58 14 38 C30 44 44 58 50 80Z" fill="#f59cc2"/><path d="M50 80 C70 76 84 58 86 38 C70 44 56 58 50 80Z" fill="#f59cc2"/><path d="M50 82 C28 84 10 76 4 62 C22 60 40 70 50 82Z" fill="#f9c3da"/><path d="M50 82 C72 84 90 76 96 62 C78 60 60 70 50 82Z" fill="#f9c3da"/><path d="M14 88 Q50 80 86 88" stroke="#3f9a4a" stroke-width="5" fill="none" stroke-linecap="round"/>',
+    kite: '<path d="M50 6 L84 42 L50 84 L16 42Z" fill="#e8425a"/><path d="M50 6 L84 42 L50 42Z" fill="#ffc93c"/><path d="M16 42 L50 42 L50 84Z" fill="#2a6fb5"/><path d="M50 84 Q42 92 52 96 Q62 98 56 90" stroke="#1e2331" stroke-width="2.5" fill="none"/><path d="M44 92 L38 88 L40 96Z M60 96 L66 92 L66 100Z" fill="#2f9a52"/>',
+    diya: '<path d="M12 62 Q50 98 88 62 Q50 72 12 62Z" fill="#c4683b"/><path d="M12 62 Q50 72 88 62 Q50 54 12 62Z" fill="#8f4320"/><path d="M50 58 C38 46 44 30 50 12 C56 30 62 46 50 58Z" fill="#ffb02e"/><path d="M50 56 C44 48 47 38 50 28 C53 38 56 48 50 56Z" fill="#fff1a8"/><path d="M24 74 Q50 86 76 74" stroke="#f2c230" stroke-width="3" fill="none" stroke-dasharray="3 4"/>',
+    train: '<rect x="18" y="10" width="64" height="64" rx="14" fill="#c8362d"/><rect x="28" y="20" width="44" height="22" rx="4" fill="#cfe9f7"/><rect x="18" y="50" width="64" height="7" fill="#ffc93c"/><circle cx="34" cy="64" r="5" fill="#fff1a8"/><circle cx="66" cy="64" r="5" fill="#fff1a8"/><path d="M30 74 L22 92 M70 74 L78 92" stroke="#1e2331" stroke-width="6" stroke-linecap="round"/>',
+    icecream: '<path d="M33 48 L50 94 L67 48Z" fill="#e3a65a"/><path d="M38 54 L62 54 M42 64 L58 64 M45 74 L55 74" stroke="#c07f3a" stroke-width="2.5"/><circle cx="50" cy="34" r="20" fill="#f7a9c4"/><circle cx="36" cy="44" r="11" fill="#f7a9c4"/><circle cx="64" cy="44" r="11" fill="#f7a9c4"/><circle cx="50" cy="13" r="7" fill="#e8425a"/>',
+    rupee: '<circle cx="50" cy="50" r="42" fill="#e6b93c"/><circle cx="50" cy="50" r="33" fill="none" stroke="#b98a1f" stroke-width="3"/><text x="50" y="67" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="48" fill="#8a6414">₹</text>',
+    // fun sheet
+    wow: '<path d="M50.0 4.0L58.5 18.1L73.0 10.2L73.3 26.7L89.8 27.0L81.9 41.5L96.0 50.0L81.9 58.5L89.8 73.0L73.3 73.3L73.0 89.8L58.5 81.9L50.0 96.0L41.5 81.9L27.0 89.8L26.7 73.3L10.2 73.0L18.1 58.5L4.0 50.0L18.1 41.5L10.2 27.0L26.7 26.7L27.0 10.2L41.5 18.1Z" fill="#ffc93c" stroke="#e8425a" stroke-width="3"/><text x="50" y="60" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="30" fill="#e8425a">WOW</text>',
+    smiley: '<circle cx="50" cy="50" r="42" fill="#ffd23f"/><circle cx="36" cy="40" r="6" fill="#1e2331"/><circle cx="64" cy="40" r="6" fill="#1e2331"/><path d="M28 58 Q50 82 72 58" stroke="#1e2331" stroke-width="6" fill="none" stroke-linecap="round"/><circle cx="26" cy="56" r="6" fill="#f7a072" opacity=".7"/><circle cx="74" cy="56" r="6" fill="#f7a072" opacity=".7"/>',
+    ten: '<circle cx="50" cy="50" r="42" fill="#2f9a52"/><circle cx="50" cy="50" r="35" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 3"/><text x="50" y="60" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="30" fill="#fff">10/10</text>',
+    bolt: '<path d="M58 4 L20 56 L46 56 L38 96 L80 40 L54 40 Z" fill="#ffc93c" stroke="#e8892a" stroke-width="3" stroke-linejoin="round"/>',
+    rainbow: '<path d="M8 80 A42 42 0 0 1 92 80" stroke="#e8425a" stroke-width="9" fill="none"/><path d="M17 80 A33 33 0 0 1 83 80" stroke="#ffc93c" stroke-width="9" fill="none"/><path d="M26 80 A24 24 0 0 1 74 80" stroke="#2f9a52" stroke-width="9" fill="none"/><path d="M35 80 A15 15 0 0 1 65 80" stroke="#2a6fb5" stroke-width="9" fill="none"/>',
+    crown: '<path d="M10 74 L14 30 L34 52 L50 22 L66 52 L86 30 L90 74 Z" fill="#ffc93c" stroke="#e8892a" stroke-width="3" stroke-linejoin="round"/><rect x="10" y="74" width="80" height="12" rx="3" fill="#e8892a"/><circle cx="50" cy="56" r="6" fill="#e8425a"/><circle cx="28" cy="62" r="4" fill="#2a6fb5"/><circle cx="72" cy="62" r="4" fill="#2a6fb5"/>',
+    omg: '<path d="M10 16 H90 Q96 16 96 22 V64 Q96 70 90 70 H42 L24 88 L28 70 H10 Q4 70 4 64 V22 Q4 16 10 16Z" fill="#fff" stroke="#1e2331" stroke-width="4" stroke-linejoin="round"/><text x="50" y="56" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="32" fill="#c8362d">OMG</text>',
+    yum: '<path d="M10 16 H90 Q96 16 96 22 V64 Q96 70 90 70 H72 L76 88 L58 70 H10 Q4 70 4 64 V22 Q4 16 10 16Z" fill="#ffe08a" stroke="#c4683b" stroke-width="4" stroke-linejoin="round"/><text x="50" y="56" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="32" fill="#c4683b">YUM!</text>',
+    sparkle: '<path d="M40 8 Q44 36 72 40 Q44 44 40 72 Q36 44 8 40 Q36 36 40 8Z" fill="#ffc93c"/><path d="M76 54 Q78 68 92 70 Q78 72 76 86 Q74 72 60 70 Q74 68 76 54Z" fill="#7fc8f8"/><path d="M74 10 Q75 18 82 19 Q75 20 74 28 Q73 20 66 19 Q73 18 74 10Z" fill="#f7a9c4"/>',
+    note: '<path d="M38 70 V18 L82 10 V60" stroke="#1e2331" stroke-width="7" fill="none" stroke-linejoin="round"/><ellipse cx="28" cy="72" rx="13" ry="10" fill="#2a6fb5"/><ellipse cx="72" cy="62" rx="13" ry="10" fill="#e8425a"/>'
   };
   const ST_KEYS = Object.keys(ST);
+  const ST_SHEETS = [
+    ["Trip", ["plane", "chai", "sun", "palm", "suitcase", "camera", "star", "heart", "cloud", "india", "badge", "voyage"]],
+    ["India", ["samosa", "mango", "rickshaw", "lotus", "kite", "diya", "train", "icecream", "rupee", "chai", "india"]],
+    ["Fun", ["wow", "smiley", "ten", "bolt", "rainbow", "crown", "omg", "yum", "sparkle", "note", "heart", "star"]]
+  ];
+  let stSheet = 0;
+  function renderTray() {
+    $("trayTabs").innerHTML = ST_SHEETS.map((sh, i) => '<button data-sheet="' + i + '" class="' + (i === stSheet ? "on" : "") + '">' + sh[0] + "</button>").join("");
+    $("trayRow").innerHTML = ST_SHEETS[stSheet][1].filter(k => ST[k]).map(k => '<button class="tray-stk" data-st="' + k + '" aria-label="' + k + ' sticker">' + stickerSVG(k) + "</button>").join("");
+    $("trayRow").scrollLeft = 0;
+  }
   function stickerSVG(t) {
     const art = ST[t] || ST.star;
     return '<svg viewBox="-9 -9 118 118" aria-hidden="true"><g class="cut">' + art.replace(/<defs>.*?<\/defs>/, "") + "</g>" + art + "</svg>";
@@ -1454,10 +1543,11 @@
     document.querySelectorAll(".sticker-toggle").forEach(b => { b.textContent = on ? "Done" : "Stickers"; b.classList.toggle("red", on); });
     $("tray").classList.toggle("on", on);
     if (on) { const m = $("main"); if (m.scrollTo) m.scrollTo({ top: 0, behavior: "smooth" }); else m.scrollTop = 0; }
-    if (on && !$("trayRow").firstChild) $("trayRow").innerHTML = ST_KEYS.map(k => '<button class="tray-stk" data-st="' + k + '" aria-label="' + k + ' sticker">' + stickerSVG(k) + "</button>").join("");
+    if (on && !$("trayRow").firstChild) renderTray();
   }
   document.querySelectorAll(".sticker-toggle").forEach(b => b.addEventListener("click", () => setStickerMode(!stickerMode)));
   $("trayDone").addEventListener("click", () => setStickerMode(false));
+  $("trayTabs").addEventListener("click", e => { const b = e.target.closest("[data-sheet]"); if (!b) return; stSheet = +b.dataset.sheet; renderTray(); pageSound(); });
   function slapSound() { burst(0.05, 1200, 0.7, 0.55, "lowpass"); burst(0.03, 3000, 1, 0.25); }
   function peelSound() {
     const a = audio(); if (!a) return;
@@ -1659,8 +1749,8 @@
     // journal: a page per day (4 moments a page), plus a fresh page for today
     const ms = state.moments.slice().sort((a, b) => a.at - b.at), dk = ms2 => new Date(ms2).toDateString();
     let j = 0, cur = null;
-    ms.forEach(m => { if (!cur || cur.day !== dk(m.at) || cur.moments.length >= 4) { cur = { k: "journal", i: j++, day: dk(m.at), at: m.at, moments: [] }; pages.push(cur); } cur.moments.push(m); });
-    if (!cur || cur.day !== dk(Date.now()) || cur.moments.length >= 4) pages.push({ k: "journal", i: j++, day: dk(Date.now()), at: Date.now(), moments: [] });
+    ms.forEach(m => { if (!cur || cur.day !== dk(m.at) || cur.moments.length >= 6) { cur = { k: "journal", i: j++, day: dk(m.at), at: m.at, moments: [] }; pages.push(cur); } cur.moments.push(m); });
+    if (!cur || cur.day !== dk(Date.now()) || cur.moments.length >= 6) pages.push({ k: "journal", i: j++, day: dk(Date.now()), at: Date.now(), moments: [] });
     pages.push({ k: "countries" });
     return pages;
   }
@@ -1818,22 +1908,35 @@
     }, "image/png");
   }
 
+  // page turns: the page is two-sided, and the page underneath is always there
+  let flipAnim = null;
+  function makeLeaf(html) {
+    const w = document.createElement("div"); w.className = "leaf-wrap";
+    w.innerHTML = '<div class="leaf-face">' + html + '</div><div class="leaf-back"></div>';
+    return w;
+  }
   function turnPage(delta) {
+    if (flipAnim) flipAnim.finish();          // flipping fast: land the last turn first, never stack pages
     const pages = ppPages(), to = Math.max(0, Math.min(pages.length - 1, ppPage + delta));
     if (to === ppPage) { const b = $("ppBook"); b.classList.remove("bump"); void b.offsetWidth; b.classList.add("bump"); return; }
     const book = $("ppBook"), old = book.firstElementChild;
     pageSound();
     if (!old || reduceMotion || !old.animate) { ppPage = to; renderPassport(); return; }
-    if (delta > 0) {
-      const leaf = old.cloneNode(true); leaf.classList.add("leaf");
-      ppPage = to; renderPassport();
-      book.appendChild(leaf);
-      leaf.animate([{ transform: "perspective(1400px) rotateY(0deg)", filter: "brightness(1)" }, { transform: "perspective(1400px) rotateY(-100deg)", filter: "brightness(.75)" }], { duration: 520, easing: "cubic-bezier(.45,.05,.4,1)" }).onfinish = () => leaf.remove();
-    } else {
-      ppPage = to; renderPassport();
-      const neu = book.firstElementChild;
-      neu.animate([{ transform: "perspective(1400px) rotateY(-100deg)", filter: "brightness(.75)" }, { transform: "perspective(1400px) rotateY(0deg)", filter: "brightness(1)" }], { duration: 520, easing: "cubic-bezier(.45,.05,.4,1)" });
+    const ease = "cubic-bezier(.45,.05,.35,1)", dur = 620;
+    const shade = document.createElement("div"); shade.className = "leaf-shade";
+    let leaf;
+    if (delta > 0) {   // the page you were on lifts and turns away; the next one is already underneath
+      const html = old.outerHTML; ppPage = to; renderPassport();
+      leaf = makeLeaf(html); book.appendChild(shade); book.appendChild(leaf);
+      flipAnim = leaf.animate([{ transform: "perspective(1500px) rotateY(0deg)" }, { transform: "perspective(1500px) rotateY(-180deg)" }], { duration: dur, easing: ease });
+    } else {           // the previous page swings back over the one you're on
+      ppPage = to;
+      leaf = makeLeaf(pageHTML(pages[to], to)); book.appendChild(shade); book.appendChild(leaf);
+      flipAnim = leaf.animate([{ transform: "perspective(1500px) rotateY(-180deg)" }, { transform: "perspective(1500px) rotateY(0deg)" }], { duration: dur, easing: ease });
     }
+    shade.animate([{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }], { duration: dur, easing: ease });
+    const a = flipAnim;
+    a.onfinish = () => { if (delta < 0) renderPassport(); leaf.remove(); shade.remove(); if (flipAnim === a) flipAnim = null; };
   }
   function pageSound() {
     const a = audio(); if (!a) return;
@@ -1843,9 +1946,17 @@
     s.connect(f); f.connect(g); g.connect(a.destination); s.start(t, Math.random()); s.stop(t + 0.3);
   }
   $("ppBook").addEventListener("click", e => {
-    if (stickerMode || stamping) return;
+    if (stickerMode || placing || flipAnim || Date.now() - placedAt < 600) return;
     const mo = e.target.closest("[data-moment]"); if (mo) { openMoment(mo.dataset.moment); return; }
-    if (e.target.closest("[data-act=log]")) { openMomentEditor(); return; }
+    const pgNow = ppPages()[ppPage];
+    const shR = $("ppBook").querySelector(".pp-sheet").getBoundingClientRect(), relX = (e.clientX - shR.left) / shR.width;
+    if (pgNow && pgNow.k === "journal" && relX > 0.12 && relX < 0.88 && !e.target.closest("button, input, a, .stk")) {   // tap an empty spot: log a moment right there
+      const r = shR;
+      if (pgNow.moments.length >= 6) { toast("This page is full. Swipe to the next one."); return; }
+      const x = Math.max(16, Math.min(84, (e.clientX - r.left) / r.width * 100)), y = Math.max(18, Math.min(86, (e.clientY - r.top) / r.height * 100));
+      openMomentEditor(null, { x: +x.toFixed(1), y: +y.toFixed(1), day: pgNow.day });
+      return;
+    }
     const b = e.target.closest("[data-stamp]");
     if (b) { const [kind, fid] = b.dataset.stamp.split(":"); const f = state.flights.find(x => x.id === fid); if (f) { addStamp(kind, f); renderPassport(); } return; }
     if (e.target.closest("input, button, a")) return;
@@ -1856,7 +1967,7 @@
   let ppSwipe = null;
   $("ppBook").addEventListener("touchstart", e => { if (stickerMode || e.touches.length !== 1 || e.target.closest("input")) return; ppSwipe = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: true });
   $("ppBook").addEventListener("touchend", e => {
-    if (!ppSwipe || stamping) { ppSwipe = null; return; } const t = e.changedTouches[0], dx = t.clientX - ppSwipe.x, dy = t.clientY - ppSwipe.y; ppSwipe = null;
+    if (!ppSwipe || placing) { ppSwipe = null; return; } const t = e.changedTouches[0], dx = t.clientX - ppSwipe.x, dy = t.clientY - ppSwipe.y; ppSwipe = null;
     if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) { e.preventDefault(); turnPage(dx < 0 ? 1 : -1); }
   });
   function updateTabDot() { const b = document.querySelector('nav.tabs [data-tab="passport"]'); if (b) b.classList.toggle("dot", ppNewDot && curTab !== "passport"); }
@@ -1866,7 +1977,7 @@
   }
 
 
-  // ================= TRAVEL JOURNAL: log a moment, then stamp it onto the page yourself =================
+  // ================= TRAVEL JOURNAL: tap the page, say what happened, it turns into a bit of travel paper =================
   // photos live in IndexedDB on the phone (too big for normal storage)
   const photoURL = new Map();
   const photoDB = new Promise(res => { try { const r = indexedDB.open("flightdeck-photos", 1); r.onupgradeneeded = () => r.result.createObjectStore("p"); r.onsuccess = () => res(r.result); r.onerror = () => res(null); } catch (e) { res(null); } });
@@ -1889,76 +2000,183 @@
     if (landed) return ap(landed.f.to).city;
     const next = flightsOrdered().up[0]; return next ? ap(next.from).city : "";
   }
-  const kindIcon = (k, cls) => '<svg class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + MOMENT_KINDS[k].icon + "</svg>";
-  const HEART = '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>';
-  function momentStamp(m) {
-    const K = MOMENT_KINDS[m.kind], d = new Date(m.at), date = pad(d.getDate()) + " " + MONS[d.getMonth()] + " " + String(d.getFullYear()).slice(2);
-    const ring = K.word + " · " + (m.where || "ON THE ROAD").toUpperCase() + " · " + date + " ·", pid = "mr" + hashStr(m.id).toString(36);
-    const hearts = m.hearts ? '<g transform="translate(' + (60 - m.hearts * 6.5) + ' 80)">' + [...Array(m.hearts)].map((_, i) => '<path transform="translate(' + (i * 13) + ' 0) scale(.5)" d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" fill="currentColor"/>').join("") + "</g>" : "";
-    return '<svg viewBox="0 0 120 120" class="ink mo-ink" style="color:' + K.ink + '"><circle cx="60" cy="60" r="55" fill="none" stroke="currentColor" stroke-width="3.6"/><circle cx="60" cy="60" r="41" fill="none" stroke="currentColor" stroke-width="1.4"/>' +
-      '<defs><path id="' + pid + '" d="M60 60 m-48 0 a48 48 0 1 1 96 0 a48 48 0 1 1 -96 0"/></defs><text class="st-s"><textPath href="#' + pid + '" startOffset="0" textLength="296" lengthAdjust="spacingAndGlyphs">' + esc(ring) + "</textPath></text>" +
-      '<g transform="translate(' + (hearts ? "41 30" : "41 38") + ') scale(1.6)" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + K.icon + "</g>" + hearts + "</svg>";
+  const iconSVG = (key, cls) => '<svg class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[key] || ICONS.flag) + "</svg>";
+  const HEART_D = "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z";
+  const HEART = '<path d="' + HEART_D + '"/>';
+
+  // ---------- the paper each kind of moment turns into ----------
+  const MONO = 'font-family="DM Mono, monospace"', HAND = 'font-family="Caveat, cursive" font-weight="600"', COND = 'font-family="Barlow Condensed, sans-serif" font-weight="700"';
+  const tx = (x, y, str, attrs) => '<text x="' + x + '" y="' + y + '" ' + attrs + ">" + esc(str) + "</text>";
+  function wrapText(str, n, max) {
+    const words = String(str || "").trim().split(/\s+/), lines = []; let cur = "";
+    words.forEach(w => { if (!w) return; if ((cur + " " + w).trim().length <= n) cur = (cur + " " + w).trim(); else { if (cur) lines.push(cur); cur = w.length > n ? w.slice(0, n - 1) + "…" : w; } });
+    if (cur) lines.push(cur);
+    if (lines.length > max) { lines.length = max; const l = lines[max - 1]; lines[max - 1] = (l.length > n - 1 ? l.slice(0, n - 1) : l) + "…"; }
+    return lines.length ? lines : [""];
+  }
+  const icoG = (key, x, y, sc, color, sw) => '<g transform="translate(' + x + " " + y + ") scale(" + sc + ')" fill="none" stroke="' + color + '" stroke-width="' + (sw || 1.8) + '" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[key] || ICONS.flag) + "</g>";
+  const heartsG = (n, x, y, color, sc) => n ? [...Array(n)].map((_, i) => '<path transform="translate(' + (x + i * 12 * (sc || 1)) + " " + y + ") scale(" + 0.5 * (sc || 1) + ')" d="' + HEART_D + '" fill="' + color + '"/>').join("") : "";
+  const mDate = m => { const d = new Date(m.at); return pad(d.getDate()) + " " + MONS[d.getMonth()] + " " + String(d.getFullYear()).slice(2); };
+  const mTime = m => { const d = new Date(m.at); return pad(d.getHours()) + ":" + pad(d.getMinutes()); };
+  const PAGE_BG = "#f5efe0";
+  function momentArt(m, uidp) {
+    const K = MOMENT_KINDS[m.kind], ink = K.ink, icon = m.icon || K.icon, where = (m.where || "on the road").toUpperCase(), what = m.what || "…";
+    const id = (uidp || "m") + hashStr(m.id || "draft").toString(36);
+    if (m.kind === "ate") {        // a cafe receipt with a torn zigzag bottom
+      let zz = "M0 0H120V140"; for (let x = 120, k = 0; x > 0; x -= 6, k++) zz += "L" + (x - 3) + " " + (k % 2 ? 140 : 146) + "L" + (x - 6) + " 140";
+      const L = wrapText(what, 17, 3);
+      return '<svg viewBox="0 0 120 148" class="art"><path d="' + zz + 'Z" fill="#fffdf7"/>' + icoG(icon, 48, 9, 1, ink, 1.9) +
+        tx(60, 44, "~ " + where + " ~", MONO + ' font-size="7" text-anchor="middle" letter-spacing=".5" fill="#555"') +
+        '<path d="M8 52H112" stroke="#999" stroke-dasharray="2 2"/>' + L.map((l, i) => tx(9, 66 + i * 12, l.toUpperCase(), MONO + ' font-size="8.6" fill="#222"')).join("") +
+        '<path d="M8 104H112" stroke="#999" stroke-dasharray="2 2"/>' + tx(9, 117, m.hearts ? "RATING" : "PAID", MONO + ' font-size="8" fill="#222"') +
+        (m.hearts ? heartsG(m.hearts, 76, 108, ink, 0.95) : tx(111, 117, "₹ ✓", MONO + ' font-size="8" text-anchor="end" fill="#222"')) +
+        tx(60, 132, mDate(m) + " · " + mTime(m), MONO + ' font-size="6.6" text-anchor="middle" fill="#777"') + "</svg>";
+    }
+    if (m.kind === "saw") {        // a postage stamp with perforated edges
+      let holes = ""; for (let x = 5; x <= 95; x += 10) holes += '<circle cx="' + x + '" cy="0" r="3.3"/><circle cx="' + x + '" cy="120" r="3.3"/>'; for (let y = 5; y <= 115; y += 10) holes += '<circle cx="0" cy="' + y + '" r="3.3"/><circle cx="100" cy="' + y + '" r="3.3"/>';
+      return '<svg viewBox="0 0 100 120" class="art"><defs><mask id="' + id + '"><rect width="100" height="120" fill="#fff"/><g fill="#000">' + holes + "</g></mask></defs>" +
+        '<rect width="100" height="120" fill="#fffdf7" mask="url(#' + id + ')"/><rect x="9" y="9" width="82" height="86" fill="' + ink + '"/>' +
+        '<path d="M9 78 Q30 66 50 76 T91 72 V95 H9Z" fill="rgba(255,255,255,.14)"/>' + icoG(icon, 27, 22, 1.9, "#fff", 1.6) +
+        tx(86, 22, "5", COND + ' font-size="13" text-anchor="end" fill="#fff"') + tx(50, 89, where, COND + ' font-size="9" letter-spacing="1" text-anchor="middle" fill="#fff"') +
+        tx(50, 108, mDate(m), MONO + ' font-size="7" text-anchor="middle" fill="' + ink + '"') + "</svg>";
+    }
+    if (m.kind === "did") {        // an admission ticket
+      const L = wrapText(what, 18, 2);
+      return '<svg viewBox="0 0 160 80" class="art"><path d="M0 0H160V30A10 10 0 0 0 160 50V80H0V50A10 10 0 0 0 0 30Z" fill="#ffe0ad"/>' +
+        '<rect x="5" y="5" width="150" height="70" rx="3" fill="none" stroke="' + ink + '" stroke-width="1" stroke-dasharray="3 2"/><path d="M38 6V74" stroke="' + ink + '" stroke-width="1.2" stroke-dasharray="3 3"/>' +
+        '<text transform="translate(25 40) rotate(-90)" ' + COND + ' font-size="10" letter-spacing="1.5" text-anchor="middle" fill="' + ink + '">ADMIT ONE</text>' +
+        icoG(icon, 132, 9, 0.75, ink, 2) + L.map((l, i) => tx(46, 32 + i * 16, l.toUpperCase(), COND + ' font-size="15" fill="#3d2410"')).join("") +
+        heartsG(m.hearts, 46, L.length > 1 ? 54 : 42, ink, 0.8) + tx(46, 70, where + " · " + mDate(m), MONO + ' font-size="6.5" fill="' + ink + '"') + "</svg>";
+    }
+    if (m.kind === "bought") {     // a kraft price tag on a string
+      const L = wrapText(what, 15, 2);
+      return '<svg viewBox="-26 0 176 80" class="art"><path d="M22 40C10 24-8 34-24 12" stroke="#a07b4f" stroke-width="1.6" fill="none"/>' +
+        '<path d="M32 4H146V76H32L6 40Z" fill="#e4c393"/><path d="M32 4H146V76H32L6 40Z" fill="none" stroke="rgba(90,60,20,.25)" stroke-width="1.2"/><circle cx="22" cy="40" r="5" fill="' + PAGE_BG + '" stroke="#b48d58"/>' +
+        icoG(icon, 120, 9, 0.8, ink, 2) + L.map((l, i) => tx(40, 30 + i * 17, l, COND + ' font-size="16" fill="#3a2410"')).join("") +
+        heartsG(m.hearts, 40, L.length > 1 ? 52 : 40, "#c8362d", 0.8) + tx(40, 70, "FOUND IN " + where, MONO + ' font-size="6.5" fill="#6b4a22"') + "</svg>";
+    }
+    if (m.kind === "met") {        // a HELLO name badge
+      const L = wrapText(what, 17, 2);
+      return '<svg viewBox="0 0 140 100" class="art"><rect width="140" height="100" rx="9" fill="' + ink + '"/>' + tx(70, 25, "HELLO", COND + ' font-size="22" letter-spacing="2" text-anchor="middle" fill="#fff"') +
+        tx(70, 35, "TODAY I MET", MONO + ' font-size="6.5" text-anchor="middle" letter-spacing="1" fill="#fff"') + '<rect x="8" y="40" width="124" height="44" rx="3" fill="#fff"/>' +
+        L.map((l, i) => tx(70, (L.length > 1 ? 58 : 68) + i * 18, l, HAND + ' font-size="' + (L.length > 1 ? 17 : 21) + '" text-anchor="middle" fill="#23307a"')).join("") +
+        tx(70, 94, where + " · " + mDate(m), MONO + ' font-size="6" text-anchor="middle" fill="rgba(255,255,255,.9)"') + "</svg>";
+    }
+    if (m.kind === "stayed") {     // a hotel key tag on its ring
+      const L = wrapText(what, 9, 3);
+      return '<svg viewBox="0 0 70 150" class="art"><path d="M8 34Q8 20 35 20Q62 20 62 34V120Q62 146 35 146Q8 146 8 120Z" fill="' + ink + '"/><circle cx="35" cy="34" r="6" fill="' + PAGE_BG + '"/>' +
+        '<circle cx="35" cy="20" r="14" fill="none" stroke="#b9b2a3" stroke-width="3"/>' + tx(35, 56, "ROOM", COND + ' font-size="8" letter-spacing="2" text-anchor="middle" fill="rgba(255,255,255,.75)"') +
+        icoG(icon, 23, 60, 1, "#fff", 1.8) + L.map((l, i) => tx(35, 100 + i * 12, l.toUpperCase(), COND + ' font-size="11" text-anchor="middle" fill="#fff"')).join("") +
+        tx(35, 138, mDate(m), MONO + ' font-size="6" text-anchor="middle" fill="rgba(255,255,255,.75)"') + "</svg>";
+    }
+    if (m.kind === "rode") {       // a transit ticket
+      const L = wrapText(what, 18, 2);
+      return '<svg viewBox="0 0 160 72" class="art"><rect width="160" height="72" rx="4" fill="#eef3ee"/><rect width="36" height="72" rx="4" fill="' + ink + '"/><rect x="30" width="6" height="72" fill="' + ink + '"/>' +
+        icoG(icon, 6, 24, 1, "#fff", 1.8) + '<circle cx="150" cy="11" r="3.6" fill="' + PAGE_BG + '"/>' +
+        '<path d="M120 60L156 60M126 64L156 64" stroke="' + ink + '" stroke-width="1" opacity=".5"/>' +
+        tx(44, 15, "SINGLE JOURNEY · " + mDate(m), MONO + ' font-size="6.5" fill="' + ink + '"') + L.map((l, i) => tx(44, 33 + i * 16, l.toUpperCase(), COND + ' font-size="15" fill="#123"')).join("") +
+        tx(44, 64, where, MONO + ' font-size="6.5" fill="#556"') + "</svg>";
+    }
+    // felt: a sticky note in your handwriting
+    const L = wrapText(what + (m.note ? " — " + m.note : ""), 16, 5);
+    return '<svg viewBox="0 0 110 110" class="art"><path d="M0 0H110V92L92 110H0Z" fill="#fff0a0"/><path d="M92 110V92H110Z" fill="#e6d375"/>' +
+      L.map((l, i) => tx(10, 22 + i * 16, l, HAND + ' font-size="15" fill="#3a3320"')).join("") + tx(10, 103, mDate(m), MONO + ' font-size="6" fill="#8a7a40"') + "</svg>";
+  }
+  // the ink label that goes on a photo
+  function photoLabel(m) {
+    const K = MOMENT_KINDS[m.kind], t = K.word + " · " + (m.where || "on the road").toUpperCase();
+    return '<svg viewBox="0 0 124 40" class="art"><rect x="2" y="2" width="120" height="36" rx="3" fill="none" stroke="' + K.ink + '" stroke-width="2.4"/><rect x="6" y="6" width="112" height="28" rx="1.5" fill="none" stroke="' + K.ink + '" stroke-width=".8"/>' +
+      '<text x="62" y="20" ' + COND + ' font-size="11" letter-spacing="1" text-anchor="middle" fill="' + K.ink + '"' + fitText(t, 104, 11) + ">" + esc(t) + "</text>" + tx(62, 30, mDate(m), MONO + ' font-size="6.5" text-anchor="middle" fill="' + K.ink + '"') + "</svg>";
+  }
+  const momentWidth = m => m.photo && photoURL.get(m.id) ? 42 : MOMENT_KINDS[m.kind].w;
+  function momentInner(m, uidp) {
+    const ph = m.photo && photoURL.get(m.id);
+    if (ph) return '<div class="pol"><i class="tape" aria-hidden="true"></i><img src="' + ph + '" alt=""><span class="cap">' + esc(m.what) + '</span></div><div class="mo-label">' + photoLabel(m) + "</div>";
+    return momentArt(m, uidp) + (m.kind === "saw" ? '<span class="cap">' + esc(m.what) + "</span>" : "");
   }
   function momentHTML(m, fresh) {
-    const ph = m.photo && photoURL.get(m.id);
-    return '<div class="mo' + (ph ? " has-photo" : "") + (fresh ? " fresh" : "") + '" data-moment="' + esc(m.id) + '" style="left:' + m.x + "%;top:" + m.y + "%;--r:" + m.r + 'deg">' +
-      (ph ? '<div class="pol"><i class="tape" aria-hidden="true"></i><img src="' + ph + '" alt=""><span class="cap">' + esc(m.what) + '</span></div><div class="mo-st">' + momentStamp(m) + "</div>"
-        : '<div class="mo-st solo">' + momentStamp(m) + '</div><span class="cap solo">' + esc(m.what) + "</span>") + "</div>";
+    return '<div class="mo k-' + m.kind + (m.photo && photoURL.get(m.id) ? " has-photo" : "") + (fresh ? " fresh" : "") + '" data-moment="' + esc(m.id) + '" style="left:' + m.x + "%;top:" + m.y + "%;width:" + momentWidth(m) + "%;--r:" + m.r + 'deg"><div class="mo-in">' + momentInner(m) + "</div></div>";
   }
-  let freshMoment = null, stamping = null;
-  const J_SPOTS = [[32, 30], [68, 42], [32, 66], [68, 80]];
+  let freshMoment = null, placing = null, placedAt = 0;
+  const J_SPOTS = [[30, 26], [70, 34], [32, 56], [70, 64], [30, 82], [70, 86]];
   function journalPage(pg, idx) {
     const d = new Date(pg.at), today = pg.day === new Date().toDateString();
     const where = [...new Set(pg.moments.map(m => m.where).filter(Boolean))].slice(0, 2).join(" · ");
-    let inner = '<div class="pp-head">JOURNAL · ' + (today ? "TODAY" : DAYS[d.getDay()] + " " + d.getDate() + " " + MONS[d.getMonth()]) + "<span>" + esc((where || placeNow() || "").toUpperCase()) + "</span></div>";
+    let inner = '<div class="pp-head">JOURNAL · ' + (today ? "TODAY" : DAYS[d.getDay()] + " " + d.getDate() + " " + MONS[d.getMonth()]) + "<span>" + esc((where || (today ? placeNow() : "") || "").toUpperCase()) + "</span></div>";
     pg.moments.forEach((m, k) => {
-      if (stamping && stamping.id === m.id) return;
-      const mm = m.x == null ? Object.assign({}, m, { x: J_SPOTS[k][0], y: J_SPOTS[k][1] }) : m;
-      inner += momentHTML(mm, freshMoment === m.id);
+      if (placing && placing.id === m.id) return;
+      inner += momentHTML(m.x == null ? Object.assign({}, m, { x: J_SPOTS[k % 6][0], y: J_SPOTS[k % 6][1] }) : m, freshMoment === m.id);
     });
-    if (!pg.moments.length && !(stamping)) inner += '<button class="j-empty" data-act="log">' + kindIcon("did") + "<b>Log a moment</b><small>Something you ate, saw or bought today. Then stamp it in.</small></button>";
+    if (!pg.moments.length && !placing) inner += '<div class="j-empty"><b>Tap anywhere on this page</b><small>to add something you ate, saw, bought, or who you met</small></div>';
     return ppSheet("journal", "j" + pg.i, inner, idx);
   }
   function journalPageIndex(id) { return ppPages().findIndex(p => p.k === "journal" && p.moments.some(m => m.id === id)); }
+  function dropMoment(m) {
+    freshMoment = m.id; renderPassport(); freshMoment = null;
+    setTimeout(() => { if (m.photo) tapeSound(); else slapSound(); if (navigator.vibrate) navigator.vibrate(14); }, 160);
+  }
 
-  // ---------- the log sheet ----------
+  // ---------- the log sheet: write it, the paper picks itself ----------
   let draftPhoto = null;
-  function openMomentEditor(id) {
+  function openMomentEditor(id, at) {
     const m = id ? state.moments.find(x => x.id === id) : null;
-    let kind = m ? m.kind : "ate", hearts = m ? m.hearts : 0;
+    let kind = m ? m.kind : "ate", icon = m ? m.icon : "utensils", hearts = m ? m.hearts : 0, manual = !!m;
     draftPhoto = m && m.photo ? photoURL.get(m.id) || null : null;
-    sheet.innerHTML = '<form id="moForm" class="mo-form" autocomplete="off"><h2>' + (m ? "Edit moment" : "Log a moment") + "</h2>" +
-      '<div class="mo-kinds" role="radiogroup">' + Object.keys(MOMENT_KINDS).map(k => '<button type="button" role="radio" data-kind="' + k + '" style="--ink:' + MOMENT_KINDS[k].ink + '">' + kindIcon(k) + "<span>" + MOMENT_KINDS[k].label + "</span></button>").join("") + "</div>" +
-      '<div class="field"><label for="moWhat">What was it?</label><input type="text" id="moWhat" maxlength="80" value="' + esc(m ? m.what : "") + '"></div>' +
-      '<div class="field"><label for="moNote">A line for the journal <span class="fine">(optional)</span></label><textarea id="moNote" rows="2" maxlength="400">' + esc(m ? m.note : "") + "</textarea></div>" +
+    sheet.innerHTML = '<form id="moForm" class="mo-form" autocomplete="off"><h2>' + (m ? "Edit moment" : "What happened?") + "</h2>" +
+      '<input type="text" id="moWhat" class="mo-what" maxlength="80" value="' + esc(m ? m.what : "") + '" aria-label="What happened" enterkeyhint="done">' +
+      '<div class="mo-preview"><div class="mo-prev-item" id="moPrev"></div></div>' +
+      '<div class="mo-kinds" id="moKinds">' + Object.keys(MOMENT_KINDS).map(k => '<button type="button" data-kind="' + k + '" style="--k:' + MOMENT_KINDS[k].ink + '">' + iconSVG(MOMENT_KINDS[k].icon) + "<span>" + MOMENT_KINDS[k].label + "</span></button>").join("") + "</div>" +
+      '<div class="field"><label for="moNote">Anything else <span class="fine">(optional)</span></label><textarea id="moNote" rows="2" maxlength="400">' + esc(m ? m.note : "") + "</textarea></div>" +
       '<div class="mo-row"><label class="mo-photo" id="moPhotoBtn"><input type="file" accept="image/*" id="moPhoto" hidden><span id="moPhotoPrev"></span></label>' +
       '<div class="mo-side"><div class="field"><label>How good?</label><div class="mo-hearts" id="moHearts">' + [1, 2, 3].map(n => '<button type="button" data-h="' + n + '" aria-label="' + n + ' hearts"><svg viewBox="0 0 24 24">' + HEART + "</svg></button>").join("") + "</div></div>" +
       '<div class="field"><label for="moWhere">Where</label><input type="text" id="moWhere" maxlength="40" value="' + esc(m ? m.where : placeNow()) + '"></div></div></div>' +
       '<p class="fine" id="moErr" style="color:var(--red)"></p>' +
-      '<div class="actions"><button type="button" class="btn ghost" id="cancelSheet">Cancel</button><button type="submit" class="btn red">' + (m ? "Save" : "Stamp it") + "</button></div></form>";
+      '<div class="actions"><button type="button" class="btn ghost" id="cancelSheet">Cancel</button><button type="submit" class="btn red">' + (m ? "Save" : "Stick it in") + "</button></div></form>";
     scrim.classList.add("on");
-    const setKind = k => { kind = k; sheet.querySelectorAll("[data-kind]").forEach(b => b.setAttribute("aria-checked", b.dataset.kind === k)); };
-    const setHearts = n => { hearts = n; sheet.querySelectorAll("[data-h]").forEach(b => b.classList.toggle("on", +b.dataset.h <= n)); };
+    const draft = () => ({ id: m ? m.id : "draft", kind, icon, what: $("moWhat").value.trim() || MOMENT_KINDS[kind].label + "…", note: $("moNote").value.trim(), where: $("moWhere").value.trim(), hearts, at: m ? m.at : Date.now(), photo: false });
+    let lastShape = "";
+    const preview = () => {
+      const d = draft(), el = $("moPrev");
+      el.style.width = Math.round(MOMENT_KINDS[kind].w * 3.6) + "px";
+      el.innerHTML = momentArt(d, "p");
+      if (lastShape !== kind) { lastShape = kind; el.classList.remove("swap"); void el.offsetWidth; el.classList.add("swap"); }
+      sheet.querySelectorAll("[data-kind]").forEach(b => b.classList.toggle("on", b.dataset.kind === kind));
+    };
+    const setHearts = n => { hearts = n; sheet.querySelectorAll("[data-h]").forEach(b => b.classList.toggle("on", +b.dataset.h <= n)); preview(); };
     const showPhoto = () => { $("moPhotoPrev").innerHTML = draftPhoto ? '<img src="' + draftPhoto + '" alt=""><b class="mo-x" id="moPhotoX">×</b>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg><small>Add a photo</small>'; $("moPhotoBtn").classList.toggle("on", !!draftPhoto); };
-    setKind(kind); setHearts(hearts); showPhoto();
-    sheet.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => { setKind(b.dataset.kind); snapSound(); });
+    $("moWhat").addEventListener("input", () => {
+      if (!manual) { const g = detectMoment($("moWhat").value + " " + $("moNote").value); if (g) { kind = g.kind; icon = g.icon; } }
+      preview();
+    });
+    $("moNote").addEventListener("input", () => { if (!manual) { const g = detectMoment($("moWhat").value + " " + $("moNote").value); if (g) { kind = g.kind; icon = g.icon; } } preview(); });
+    $("moWhere").addEventListener("input", preview);
+    sheet.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => {
+      manual = true; kind = b.dataset.kind;
+      const g = detectMoment($("moWhat").value); icon = g && g.kind === kind ? g.icon : MOMENT_KINDS[kind].icon;
+      snapSound(); preview();
+    });
     sheet.querySelectorAll("[data-h]").forEach(b => b.onclick = () => { setHearts(hearts === +b.dataset.h ? 0 : +b.dataset.h); if (navigator.vibrate) navigator.vibrate(8); });
     $("moPhotoBtn").addEventListener("click", e => { if (e.target.id === "moPhotoX") { e.preventDefault(); draftPhoto = null; showPhoto(); } });
     $("moPhoto").onchange = async e => { const f = e.target.files && e.target.files[0]; if (!f) return; $("moPhotoPrev").innerHTML = "<small>Developing…</small>"; try { draftPhoto = await readPhoto(f); } catch (err) { $("moErr").textContent = "Couldn't read that photo. Try another one."; } showPhoto(); };
     $("cancelSheet").onclick = closeSheet;
+    $("moWhat").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("moWhat").blur(); } });
+    setHearts(hearts); showPhoto(); preview();
     $("moForm").onsubmit = e => {
       e.preventDefault();
       const what = $("moWhat").value.trim();
-      if (!what) { $("moErr").textContent = "Write what it was, even just a word."; $("moWhat").focus(); return; }
-      const fields = { kind, what, note: $("moNote").value.trim(), where: $("moWhere").value.trim(), hearts, photo: !!draftPhoto };
+      if (!what) { $("moErr").textContent = "Write what happened, even just a word."; $("moWhat").focus(); return; }
+      const fields = { kind, icon, what, note: $("moNote").value.trim(), where: $("moWhere").value.trim(), hearts, photo: !!draftPhoto };
       if (m) {
         Object.assign(m, fields); if (draftPhoto) photoPut(m.id, draftPhoto); else photoDel(m.id);
         commit({ quiet: true }); closeSheet(); renderPassport(); toast("Saved"); return;
       }
-      const nm = Object.assign({ id: uid(), at: Date.now(), x: null, y: null, r: +(Math.random() * 16 - 8).toFixed(1) }, fields);
+      // tapped a spot on a past day's page: it belongs to that day
+      let when = Date.now();
+      if (at && at.day && at.day !== new Date().toDateString()) { const d = new Date(at.day); d.setHours(12, 0, 0, 0); when = d.getTime(); }
+      const nm = Object.assign({ id: uid(), at: when, x: at ? at.x : null, y: at ? at.y : null, r: +(Math.random() * 14 - 7).toFixed(1) }, fields);
       if (draftPhoto) photoPut(nm.id, draftPhoto);
       state.moments.push(nm); commit({ quiet: true }); closeSheet();
-      startStamping(nm);
+      if (at) { ppPage = Math.max(0, journalPageIndex(nm.id)); dropMoment(nm); } else startPlacing(nm);
     };
     if (!m) setTimeout(() => $("moWhat").focus(), 350);
   }
@@ -1967,50 +2185,49 @@
   function openMoment(id) {
     const m = state.moments.find(x => x.id === id); if (!m) return;
     const K = MOMENT_KINDS[m.kind], ph = m.photo && photoURL.get(m.id), d = new Date(m.at);
-    sheet.innerHTML = '<div class="mo-view">' + (ph ? '<div class="pol big"><i class="tape" aria-hidden="true"></i><img src="' + ph + '" alt=""></div>' : '<div class="mo-view-st">' + momentStamp(m) + "</div>") +
-      '<div class="mo-kind" style="color:' + K.ink + '">' + kindIcon(m.kind) + K.word + (m.hearts ? ' <span class="mo-h">' + [...Array(m.hearts)].map(() => '<svg viewBox="0 0 24 24">' + HEART + "</svg>").join("") + "</span>" : "") + "</div>" +
+    sheet.innerHTML = '<div class="mo-view">' + (ph ? '<div class="pol big"><i class="tape" aria-hidden="true"></i><img src="' + ph + '" alt=""></div>' : '<div class="mo-view-art" style="width:' + Math.round(K.w * 5) + 'px">' + momentArt(m, "v") + "</div>") +
+      '<div class="mo-kind" style="color:' + K.ink + '">' + iconSVG(m.icon || K.icon) + K.word + (m.hearts ? ' <span class="mo-h">' + [...Array(m.hearts)].map(() => '<svg viewBox="0 0 24 24">' + HEART + "</svg>").join("") + "</span>" : "") + "</div>" +
       '<h2 class="hand">' + esc(m.what) + "</h2>" + (m.note ? '<p class="hand note-hand">' + esc(m.note) + "</p>" : "") +
       '<p class="fine">' + esc(m.where || "Somewhere") + " · " + DAYS[d.getDay()] + " " + d.getDate() + " " + MONS[d.getMonth()] + " " + d.getFullYear() + ", " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + "</p>" +
       '<div class="actions"><button class="btn danger" id="moDel">Delete</button><span style="flex:1"></span><button class="btn ghost" id="moMove">Move</button><button class="btn ghost" id="moEdit">Edit</button><button class="btn primary" id="cancelSheet">Done</button></div></div>';
     scrim.classList.add("on");
     $("cancelSheet").onclick = closeSheet;
     $("moEdit").onclick = () => openMomentEditor(id);
-    $("moMove").onclick = () => { closeSheet(); startStamping(m); };
+    $("moMove").onclick = () => { closeSheet(); startPlacing(m); };
     $("moDel").onclick = e => { const b = e.currentTarget; if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Tap again to delete"; return; } state.moments = state.moments.filter(x => x.id !== id); photoDel(id); commit({ quiet: true }); closeSheet(); renderPassport(); toast("Moment removed"); };
   }
 
-  // ---------- stamping it in: the stamp follows your finger, lift to slam it down ----------
-  const stamper = document.createElement("div"); stamper.className = "stamper"; stamper.innerHTML = '<div class="st-handle"></div><div class="st-block"><div class="st-face"></div></div>';
-  document.body.appendChild(stamper);
-  function startStamping(m) {
-    stamping = m;
+  // ---------- placing it by hand: the paper follows your finger, let go to stick it down ----------
+  const placer = document.createElement("div"); placer.className = "placer"; document.body.appendChild(placer);
+  function startPlacing(m) {
+    placing = m;
     if (curTab !== "passport") showTab("passport");
     ppPage = Math.max(0, journalPageIndex(m.id)); renderPassport();
-    $("ppBook").classList.add("stamping"); $("stampHint").classList.add("on");
-    stamper.querySelector(".st-face").innerHTML = momentStamp(m); stamper.style.color = MOMENT_KINDS[m.kind].ink;
-    const r = $("ppBook").getBoundingClientRect(); moveStamper(r.left + r.width / 2, r.top + r.height * 0.55); stamper.className = "stamper on hover";
+    $("ppBook").classList.add("placing"); $("stampHint").classList.add("on");
+    const sh = $("ppBook").querySelector(".pp-sheet"), r = sh.getBoundingClientRect();
+    placer.style.width = (r.width * momentWidth(m) / 100) + "px"; placer.style.setProperty("--r", m.r + "deg");
+    placer.innerHTML = '<div class="mo-in">' + momentInner(m, "f") + "</div>";
+    movePlacer(r.left + r.width / 2, r.top + r.height * 0.5); placer.className = "placer on hover";
   }
-  function moveStamper(x, y) { stamper.style.left = x + "px"; stamper.style.top = y + "px"; }
-  function slam(x, y) {
-    const m = stamping, sheetEl2 = $("ppBook").querySelector(".pp-sheet:not(.leaf)"); if (!m || !sheetEl2) return;
-    const r = sheetEl2.getBoundingClientRect();
+  function movePlacer(x, y) { placer.style.left = x + "px"; placer.style.top = y + "px"; }
+  function placeAt(x, y) {
+    const m = placing, sh = $("ppBook").querySelector(".pp-sheet"); if (!m || !sh) return;
+    const r = sh.getBoundingClientRect();
     m.x = +Math.max(16, Math.min(84, (x - r.left) / r.width * 100)).toFixed(1);
-    m.y = +Math.max(16, Math.min(88, (y - r.top) / r.height * 100)).toFixed(1);
-    moveStamper(x, y); stamper.className = "stamper on slam";
-    setTimeout(() => {
-      stampSound(); if (navigator.vibrate) navigator.vibrate([18, 30, 8]);
-      stamping = null; freshMoment = m.id; commit({ quiet: true });
-      $("ppBook").classList.remove("stamping"); $("stampHint").classList.remove("on");
-      renderPassport(); freshMoment = null;
-      if (m.photo) setTimeout(tapeSound, 380);
-    }, 150);
-    setTimeout(() => { stamper.className = "stamper"; }, 650);
+    m.y = +Math.max(18, Math.min(86, (y - r.top) / r.height * 100)).toFixed(1);
+    placing = null; placedAt = Date.now(); commit({ quiet: true });
+    $("ppBook").classList.remove("placing"); $("stampHint").classList.remove("on");
+    placer.className = "placer"; dropMoment(m);
   }
   const bookEl = $("ppBook");
-  bookEl.addEventListener("pointerdown", e => { if (!stamping) return; e.preventDefault(); stamper.className = "stamper on lift"; moveStamper(e.clientX, e.clientY); try { bookEl.setPointerCapture(e.pointerId); } catch (err) {} });
-  bookEl.addEventListener("pointermove", e => { if (!stamping) return; moveStamper(e.clientX, e.clientY); });
-  bookEl.addEventListener("pointerup", e => { if (!stamping) return; e.preventDefault(); slam(e.clientX, e.clientY); });
-  $("stampAuto").addEventListener("click", () => { if (!stamping) return; const sh = bookEl.querySelector(".pp-sheet:not(.leaf)"), r = sh.getBoundingClientRect(), pg = ppPages()[ppPage], k = pg.moments ? pg.moments.indexOf(stamping) : 0, sp = J_SPOTS[Math.max(0, k) % 4]; slam(r.left + r.width * sp[0] / 100, r.top + r.height * sp[1] / 100); });
+  bookEl.addEventListener("pointerdown", e => { if (!placing) return; e.preventDefault(); placer.className = "placer on lift"; movePlacer(e.clientX, e.clientY); try { bookEl.setPointerCapture(e.pointerId); } catch (err) {} });
+  bookEl.addEventListener("pointermove", e => { if (placing) movePlacer(e.clientX, e.clientY); });
+  bookEl.addEventListener("pointerup", e => { if (!placing) return; e.preventDefault(); placeAt(e.clientX, e.clientY); });
+  // fingers: touch events (iPhone Safari is unreliable with pointer drags)
+  bookEl.addEventListener("touchstart", e => { if (!placing) return; e.preventDefault(); const t = e.touches[0]; placer.className = "placer on lift"; movePlacer(t.clientX, t.clientY); }, { passive: false });
+  bookEl.addEventListener("touchmove", e => { if (!placing) return; e.preventDefault(); const t = e.touches[0]; movePlacer(t.clientX, t.clientY); }, { passive: false });
+  bookEl.addEventListener("touchend", e => { if (!placing) return; e.preventDefault(); const t = e.changedTouches[0]; placeAt(t.clientX, t.clientY); }, { passive: false });
+  $("stampAuto").addEventListener("click", () => { if (!placing) return; const sh = bookEl.querySelector(".pp-sheet"), r = sh.getBoundingClientRect(), pg = ppPages()[ppPage], k = Math.max(0, pg.moments ? pg.moments.indexOf(placing) : 0), sp = J_SPOTS[k % 6]; placeAt(r.left + r.width * sp[0] / 100, r.top + r.height * sp[1] / 100); });
   $("logMomentBtn").addEventListener("click", () => openMomentEditor());
 
   // ================= SEATBACK SCREEN =================
