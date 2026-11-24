@@ -888,3 +888,11 @@ input.needtime { border-color: var(--late) !important; box-shadow: 0 0 0 3px rgb
 .welcome.go .wl-main { animation: shake .3s 1.68s both; }
 @keyframes shake { 30% { transform: translateY(3px); } 60% { transform: translateY(-1px); } }
 .preview-landing { display: block; margin-top: 10px; font-size: 14px; }
+
+/* ---------- Flight tab spacing (the inline layout used to get wiped when the tab showed) ---------- */
+#flightMain { display: flex; flex-direction: column; gap: 16px; }
+#flightMain > .legs { margin-bottom: -6px; }
+
+/* ---------- no double-tap zoom: taps are instant, pinch-zoom still works ---------- */
+html, body { touch-action: manipulation; }
+button, .btn, .chip, .tab, nav, label.switch, .linkbtn { -webkit-user-select: none; user-select: none; }
