@@ -1,5 +1,5 @@
 // Flight Deck service worker: keeps every file on the phone so the app opens with no internet.
-const CACHE = "flightdeck-v21";
+const CACHE = "flightdeck-v22";
 const FILES = [
   "./", "index.html", "app.css", "app.js", "manifest.webmanifest",
   "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png",
@@ -7,7 +7,7 @@ const FILES = [
   "fonts/barlow-latin-400-normal.woff2", "fonts/barlow-latin-500-normal.woff2",
   "fonts/barlow-latin-600-normal.woff2", "fonts/barlow-latin-700-normal.woff2",
   "fonts/dm-mono-latin-400-normal.woff2", "fonts/dm-mono-latin-500-normal.woff2", "fonts/caveat-latin-600-normal.woff2",
-  "lib/d3-array.min.js", "lib/d3-geo.min.js", "lib/topojson-client.min.js",
+  "lib/d3-array.min.js", "lib/d3-geo.min.js", "lib/topojson-client.min.js", "lib/zxing/zxing-reader.js", "lib/zxing/zxing_reader.wasm",
   "data/airports.json", "data/world-50m.json"
 ];
 

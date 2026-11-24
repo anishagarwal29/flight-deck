@@ -828,3 +828,63 @@ input.est { color: var(--blue); }
 .mo-preview.empty { height: 64px; }
 .mo-preview.empty span { font-family: "Caveat", cursive; font-size: 22px; color: var(--muted); }
 .mo-prev-item { transform: rotate(-3deg); }
+
+/* ---------- scan a boarding pass ---------- */
+.scan-btn { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; border: 1.5px dashed var(--ink); border-radius: 10px; background: var(--ticket); color: var(--ink); box-shadow: var(--shadow); transition: transform .12s; }
+.scan-btn:active { transform: scale(.98); }
+.scan-btn svg { width: 30px; height: 30px; flex: none; fill: none; stroke: var(--red); stroke-width: 1.8; stroke-linecap: round; }
+.scan-btn b { display: block; font-family: var(--font-display); font-size: 19px; letter-spacing: .02em; text-transform: uppercase; }
+.scan-btn small { display: block; font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+input.needtime { border-color: var(--late) !important; box-shadow: 0 0 0 3px rgba(181, 98, 12, .18); }
+.overlay.scan { z-index: 70; background: #0d0f14; flex-direction: column; align-items: center; justify-content: center; }
+.scan video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .4s; }
+.scan.live video { opacity: 1; }
+.scan-frame { position: relative; width: 86vw; max-width: 420px; height: 34vh; max-height: 260px; border-radius: 14px; box-shadow: 0 0 0 100vmax rgba(8, 10, 14, .55); margin-bottom: 18vh; }
+.scan-frame i { position: absolute; inset: 0; border-radius: 14px; border: 2px solid rgba(255, 252, 244, .9);
+  -webkit-mask: linear-gradient(#000 0 0) top left / 34px 34px no-repeat, linear-gradient(#000 0 0) top right / 34px 34px no-repeat, linear-gradient(#000 0 0) bottom left / 34px 34px no-repeat, linear-gradient(#000 0 0) bottom right / 34px 34px no-repeat;
+          mask: linear-gradient(#000 0 0) top left / 34px 34px no-repeat, linear-gradient(#000 0 0) top right / 34px 34px no-repeat, linear-gradient(#000 0 0) bottom left / 34px 34px no-repeat, linear-gradient(#000 0 0) bottom right / 34px 34px no-repeat; }
+.scan-line { position: absolute; left: 8%; right: 8%; top: 50%; height: 2px; background: var(--red); box-shadow: 0 0 12px 2px rgba(200, 54, 45, .7); animation: scanLine 1.8s ease-in-out infinite alternate; }
+@keyframes scanLine { from { transform: translateY(-11vh); } to { transform: translateY(11vh); } }
+.scan.got .scan-frame i { border-color: #6fd39a; }
+.scan.got .scan-line { background: #6fd39a; box-shadow: 0 0 16px 4px rgba(111, 211, 154, .7); animation: none; }
+.scan-ui { position: absolute; left: 0; right: 0; bottom: 0; padding: 20px 20px calc(22px + env(safe-area-inset-bottom)); text-align: center; color: #fffcf4; background: linear-gradient(transparent, rgba(8, 10, 14, .85) 40%); }
+.scan-ui p { margin: 0 0 14px; font-size: 15px; line-height: 1.4; min-height: 42px; }
+.scan-btns { display: flex; gap: 10px; justify-content: center; }
+.scan-btns .btn { color: #fffcf4; border-color: rgba(255, 252, 244, .8); cursor: pointer; }
+.scan-btns .btn.ghost { border-color: rgba(255, 252, 244, .3); }
+
+/* ---------- landing moment ---------- */
+.overlay.welcome { z-index: 65; background: radial-gradient(120% 80% at 50% 0%, #f6efe0, var(--paper) 60%, #ddd3bf); overflow-y: auto; justify-content: center; align-items: flex-start; }
+.wl { width: 100%; max-width: 440px; padding: calc(14px + env(safe-area-inset-top)) 18px calc(22px + env(safe-area-inset-bottom)); }
+.wl-sky { height: 86px; color: var(--ink); margin: 0 -6px; }
+.wl-scene { width: 100%; height: 100%; overflow: visible; }
+.wl-plane { transform: translate(-40px, 20px); opacity: 0; }
+.welcome.go .wl-plane { animation: wlLand 1.4s var(--ease) both; }
+@keyframes wlLand { 0% { transform: translate(-40px, 6px) rotate(-8deg); opacity: 0; } 15% { opacity: 1; } 70% { transform: translate(190px, 66px) rotate(0deg); } 100% { transform: translate(230px, 66px); opacity: 1; } }
+.wl-card { background: var(--ticket); border-radius: 12px; box-shadow: var(--shadow), 0 18px 40px -22px rgba(30, 35, 49, .5); overflow: hidden; opacity: 0; transform: translateY(26px); }
+.welcome.go .wl-card { animation: wlCard .6s .55s var(--ease) both; }
+@keyframes wlCard { to { opacity: 1; transform: none; } }
+.wl-band { display: flex; justify-content: space-between; padding: 9px 16px; background: var(--ink); color: var(--ticket); font-family: var(--font-data); font-size: 11.5px; letter-spacing: .14em; }
+.wl-main { padding: 18px 18px 16px; }
+.wl-k { display: block; font-size: 11px; letter-spacing: .24em; color: var(--muted); font-weight: 700; }
+.wl-city { margin: 2px 0 0; font-family: var(--font-display); font-weight: 800; font-size: clamp(44px, 15vw, 64px); line-height: .92; letter-spacing: .01em; color: var(--ink); word-break: break-word; }
+.wl-ctry { margin: 6px 0 0; font-size: 15px; color: var(--ink); }
+.wl-ctry em { font-style: normal; color: var(--red); font-weight: 600; }
+.wl-time { display: flex; align-items: baseline; gap: 10px; margin: 16px 0 0; padding: 12px 0; border-top: 1.5px dashed var(--rule); border-bottom: 1.5px dashed var(--rule); }
+.wl-time small, .wl-facts small { font-size: 10px; letter-spacing: .16em; color: var(--muted); font-weight: 700; }
+.wl-time b { font-family: var(--font-data); font-size: 40px; font-weight: 500; letter-spacing: -.02em; }
+.wl-time span { font-family: var(--font-data); font-size: 13px; color: var(--muted); }
+.wl-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; margin: 14px 0 0; }
+.wl-facts b { display: block; font-size: 15.5px; font-weight: 600; margin-top: 2px; line-height: 1.2; }
+.wl-page { position: relative; margin: 16px -18px 0; padding: 14px 18px 12px; min-height: 160px; background: repeating-linear-gradient(0deg, transparent 0 23px, rgba(42, 85, 156, .07) 23px 24px), #f7f1e3; border-top: 1px solid var(--rule); display: flex; flex-direction: column; align-items: center; }
+.wl-stamp { width: 150px; opacity: 0; transform: scale(1.8) rotate(-12deg); }
+.wl-stamp svg { width: 100%; height: auto; mix-blend-mode: multiply; opacity: .9; overflow: visible; }
+.wl-stamp.slam { animation: wlSlam .5s cubic-bezier(.3, 1.4, .5, 1) both; }
+@keyframes wlSlam { 0% { opacity: 0; transform: scale(1.8) rotate(-12deg); filter: blur(2px); } 45% { opacity: 1; transform: scale(.94) rotate(-6deg); filter: none; } 100% { opacity: 1; transform: scale(1) rotate(-7deg); } }
+.wl-page span { font-size: 12px; color: var(--muted); margin-top: 6px; opacity: 0; transition: opacity .4s .5s; }
+.wl-stamp.slam + span { opacity: 1; }
+.wl-card .actions { display: flex; gap: 10px; margin-top: 16px; }
+.wl-card .actions .btn { flex: 1; padding: 12px; }
+.welcome.go .wl-main { animation: shake .3s 1.68s both; }
+@keyframes shake { 30% { transform: translateY(3px); } 60% { transform: translateY(-1px); } }
+.preview-landing { display: block; margin-top: 10px; font-size: 14px; }

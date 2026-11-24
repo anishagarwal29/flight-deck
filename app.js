@@ -1319,6 +1319,7 @@
     const o = flightsOrdered(), last = o.up[o.up.length - 1] || o.past[0];
     const from = f ? f.from : (last ? last.to : ""), to = f ? f.to : "";
     sheet.innerHTML = '<form id="flightForm" style="display:flex;flex-direction:column;gap:14px" autocomplete="off"><h2>' + (f ? "Edit flight" : "Add a flight") + "</h2>" +
+      '<button type="button" class="scan-btn" id="fScan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M7 8v8M10 8v8M12.5 8v8M15 8v8M17 8v8"/></svg><span><b>Scan your boarding pass</b><small>Camera or a screenshot. Fills in everything it can.</small></span></button>' +
       '<div class="field"><label for="fNo">Flight number</label><input type="text" id="fNo" class="fno" value="' + esc(f ? f.no : "") + '" autocomplete="off" autocapitalize="characters" spellcheck="false"><small class="look" id="fLook">Type it and I\'ll fill in the rest</small></div>' +
       '<div class="grid2">' + airportField("fFrom", "From", from) + airportField("fTo", "To", to) + "</div>" +
       '<div class="field"><label for="fDep" id="fDepL">Departs (local time)</label><input type="datetime-local" id="fDep" value="' + esc(f ? f.dep : "") + '"></div>' +
@@ -1398,6 +1399,27 @@
     };
     $("fDep").addEventListener("change", fillArr); $("fDep").addEventListener("input", fillArr);
     if ($("fNo").value) lookup();
+    // ---- scanned boarding pass: fill the form from the barcode ----
+    let needTime = false;
+    $("fScan").onclick = () => openScanner(pass => {
+      const L = pass.legs[0];
+      clearTimeout(lookT); ++lookSeq;
+      $("fNo").value = L.carrier + " " + L.flight;
+      setAirport("fFrom", L.from); setAirport("fTo", L.to); touched.fFrom = touched.fTo = true;
+      if (L.seat) { $("fSeat").value = L.seat; $("fSeat").classList.remove("filled"); void $("fSeat").offsetWidth; $("fSeat").classList.add("filled"); }
+      const day = dateFromJulian(L.jd);
+      if (day) {
+        const keep = ($("fDep").value || "").slice(11, 16);
+        $("fDep").value = day + "T" + (keep || "12:00"); needTime = !keep; $("fDep").classList.toggle("needtime", needTime);
+      }
+      if (pass.name && !state.name) { state.name = pass.name; commit({ quiet: true }); }
+      look.className = "look ok";
+      look.innerHTML = "<b>From your boarding pass</b> · " + esc(airlineOf(L.carrier + " " + L.flight) || L.carrier) + " " + esc(L.flight) + (L.seat ? " · seat " + esc(L.seat) : "") + (L.pnr ? " · booking " + esc(L.pnr) : "") +
+        "<br><span>" + (needTime ? "Boarding passes don't include the time. Set the departure time below." : "Check the times match your ticket.") + (pass.legs.length > 1 ? " This pass has " + pass.legs.length + " flights; add the others separately." : "") + "</span>";
+      upd(); touched.fArr = false; fillArr();
+      if (needTime) setTimeout(() => { $("fDep").focus(); $("fDep").scrollIntoView({ block: "center", behavior: "smooth" }); }, 300);
+    });
+    $("fDep").addEventListener("change", () => { needTime = false; $("fDep").classList.remove("needtime"); });
     $("cancelSheet").onclick = closeSheet;
     if (f) $("fDelete").onclick = e => {
       const b = e.currentTarget;
@@ -1409,6 +1431,7 @@
       const fr = $("fFrom").dataset.code, tt = $("fTo").dataset.code;
       if (!fr || !tt) { $("fErr").textContent = "Pick both airports from the list (type a city or a 3-letter code)."; return; }
       if (fr === tt) { $("fErr").textContent = "From and To are the same airport."; return; }
+      if (needTime) { $("fErr").textContent = "Set the departure time from your ticket (the boarding pass only has the date)."; $("fDep").focus(); return; }
       const rec = f || { id: uid(), torn: false, tornAt: 0, tear: null, stickers: [], added: Date.now() };
       Object.assign(rec, { from: fr, to: tt, no: $("fNo").value.trim(), seat: $("fSeat").value.trim(), gate: $("fGate").value.trim(), dep: $("fDep").value, arr: $("fArr").value });
       const t = legTimes(Object.assign({}, rec, { dur: 0 }));
@@ -1755,6 +1778,7 @@
     state.stamps.push({ id, kind, code: kind === "dep" ? f.from : f.to, at: at || Date.now(), r: +(Math.random() * 18 - 9).toFixed(1), dx: +(Math.random() * 10 - 5).toFixed(1) });
     freshStamps.add(id); ppNewDot = true; updateTabDot();
     commit({ quiet: true });
+    if (kind === "arr") maybeWelcome(f);
     return true;
   }
   function autoStamps() {
@@ -1982,6 +2006,175 @@
     ppNewDot = false; updateTabDot(); renderPassport();
   }
 
+
+  // ================= SCAN A BOARDING PASS =================
+  // Every boarding pass barcode (paper, airline app, or a screenshot) holds the IATA "BCBP" data:
+  // flight, airports, date and seat. We read it with zxing (bundled, works offline).
+  let zxReady = null;
+  function loadZXing() {
+    if (zxReady) return zxReady;
+    zxReady = new Promise((res, rej) => {
+      const sc = document.createElement("script"); sc.src = "lib/zxing/zxing-reader.js";
+      sc.onload = () => { try { ZXingWASM.prepareZXingModule({ overrides: { locateFile: (p, prefix) => p.endsWith(".wasm") ? "lib/zxing/zxing_reader.wasm" : prefix + p } }); res(ZXingWASM); } catch (e) { rej(e); } };
+      sc.onerror = () => { zxReady = null; rej(new Error("scanner didn't load")); };
+      document.head.appendChild(sc);
+    });
+    return zxReady;
+  }
+  const ZX_OPTS = { formats: ["PDF417", "Aztec", "QRCode", "DataMatrix"], tryHarder: true, maxNumberOfSymbols: 1 };
+  // IATA Resolution 792 (BCBP), format "M": name, then 37 fixed characters per flight
+  function parseBCBP(raw) {
+    const txt = String(raw || "").replace(/^\]\w\d/, "");
+    if (!/^M[1-4]/.test(txt) || txt.length < 58) return null;
+    const n = +txt[1], legs = [];
+    let pos = 23;
+    for (let i = 0; i < n; i++) {
+      const L = txt.slice(pos, pos + 37); if (L.length < 37) break;
+      const jd = parseInt(L.slice(21, 24), 10), size = parseInt(L.slice(35, 37), 16) || 0;
+      legs.push({ pnr: L.slice(0, 7).trim(), from: L.slice(7, 10).trim().toUpperCase(), to: L.slice(10, 13).trim().toUpperCase(), carrier: L.slice(13, 16).trim().toUpperCase(),
+        flight: L.slice(16, 21).trim().replace(/^0+(?=\d)/, ""), jd, cabin: L[24], seat: L.slice(25, 29).trim().replace(/^0+(?=\d)/, ""), seq: L.slice(29, 34).trim().replace(/^0+(?=\d)/, "") });
+      pos += 37 + size;
+    }
+    if (!legs.length || !/^[A-Z]{3}$/.test(legs[0].from) || !/^[A-Z]{3}$/.test(legs[0].to)) return null;
+    // name is "SURNAME/FIRSTNAME MR"
+    const nm = txt.slice(2, 22).trim(), [sur, first] = nm.split("/");
+    const tc = w => (w || "").toLowerCase().replace(/(^|[\s-])\S/g, c => c.toUpperCase());
+    const name = first ? (tc(first.replace(/\s+(MR|MRS|MS|MISS|MSTR|DR|MASTER|CHD|INF)$/i, "")) + " " + tc(sur)).trim() : tc(nm);
+    return { name, legs };
+  }
+  // the flight date: the pass only has the day of the year, so pick the year that makes it upcoming (or recent)
+  function dateFromJulian(jd) {
+    if (!(jd >= 1 && jd <= 366)) return "";
+    const now = new Date(); let y = now.getFullYear(), d = new Date(y, 0, jd);
+    if (d < new Date(now.getTime() - 60 * 864e5)) d = new Date(y + 1, 0, jd);
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+  let scanStream = null, scanTimer = 0, scanBusy = false;
+  function stopScan() {
+    clearTimeout(scanTimer); scanTimer = 0;
+    if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+    $("scan").classList.remove("on");
+  }
+  function openScanner(onPass) {
+    const ov = $("scan"), vid = $("scanVideo"), msg = $("scanMsg");
+    ov.classList.add("on"); ov.classList.remove("live", "got");
+    msg.textContent = "Starting the camera…";
+    let got = false;
+    const done = (pass, raw) => {
+      if (got) return; got = true;
+      clearTimeout(scanTimer); scanTimer = 0;
+      ov.classList.add("got"); if (navigator.vibrate) navigator.vibrate([12, 40, 12]); snapSound();
+      msg.textContent = "Got it: " + pass.legs[0].carrier + " " + pass.legs[0].flight + " · " + pass.legs[0].from + " → " + pass.legs[0].to;
+      setTimeout(() => { stopScan(); onPass(pass, raw); }, 650);
+    };
+    const tryText = text => {
+      if (got) return true;
+      const pass = parseBCBP(text);
+      if (pass) { done(pass, text); return true; }
+      msg.textContent = "That barcode isn't a boarding pass. Try the one on your pass."; return false;
+    };
+    loadZXing().then(ZX => {
+      const canvas = document.createElement("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
+      const tick = async () => {
+        scanTimer = 0;
+        if (!scanStream || scanBusy || !vid.videoWidth) { scanTimer = setTimeout(tick, 250); return; }
+        scanBusy = true;
+        try {
+          // read the middle of the frame (where the guide box is), at a size the phone can decode quickly
+          const vw = vid.videoWidth, vh = vid.videoHeight, cw = Math.round(vw * 0.9), ch = Math.round(vh * 0.6), k = Math.min(1, 1280 / cw);
+          canvas.width = Math.round(cw * k); canvas.height = Math.round(ch * k);
+          ctx.drawImage(vid, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, canvas.width, canvas.height);
+          const res = await ZX.readBarcodes(ctx.getImageData(0, 0, canvas.width, canvas.height), ZX_OPTS);
+          if (res && res[0] && res[0].text && tryText(res[0].text)) { scanBusy = false; return; }
+        } catch (e) {}
+        scanBusy = false;
+        if (scanStream) scanTimer = setTimeout(tick, 220);
+      };
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { msg.textContent = "No camera here. Choose a screenshot of your pass instead."; return; }
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }).then(st => {
+        if (!$("scan").classList.contains("on")) { st.getTracks().forEach(t => t.stop()); return; }
+        scanStream = st; vid.srcObject = st; vid.play().catch(() => {});
+        ov.classList.add("live"); msg.textContent = "Fit the barcode on your boarding pass inside the box";
+        tick();
+      }).catch(() => { msg.textContent = "Camera's blocked. Choose a screenshot of your pass instead."; });
+    }).catch(() => { msg.textContent = "The scanner didn't load. Check your connection once, then it works offline."; });
+    $("scanFile").onchange = async e => {
+      const file = e.target.files && e.target.files[0]; e.target.value = ""; if (!file) return;
+      msg.textContent = "Reading the barcode…";
+      try {
+        const ZX = await loadZXing();
+        let res = await ZX.readBarcodes(file, ZX_OPTS);
+        if (!res || !res[0]) {   // big screenshots: try again a bit smaller
+          const bmp = await createImageBitmap(file), k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height)), c = document.createElement("canvas");
+          c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+          res = await ZX.readBarcodes(c.getContext("2d").getImageData(0, 0, c.width, c.height), ZX_OPTS);
+        }
+        if (res && res[0] && res[0].text) tryText(res[0].text); else msg.textContent = "Couldn't find a barcode in that picture. Try a clearer screenshot.";
+      } catch (err) { msg.textContent = "Couldn't read that picture."; }
+    };
+  }
+  $("scanClose").addEventListener("click", stopScan);
+
+  // ================= LANDING MOMENT: "Welcome to ___", then your arrival stamp slams in =================
+  const CURRENCY_BY_CC = { IN: "INR", SG: "SGD", TH: "THB", MY: "MYR", ID: "IDR", JP: "JPY", KR: "KRW", CN: "CNY", HK: "HKD", TW: "TWD", VN: "VND", PH: "PHP", LK: "LKR", NP: "NPR", BD: "BDT",
+    MV: "MVR", BT: "BTN", MM: "MMK", KH: "KHR", LA: "LAK", AE: "AED", QA: "QAR", SA: "SAR", OM: "OMR", BH: "BHD", KW: "KWD", TR: "TRY", GB: "GBP", US: "USD", CA: "CAD", AU: "AUD", NZ: "NZD",
+    CH: "CHF", JE: "GBP", FR: "EUR", DE: "EUR", IT: "EUR", ES: "EUR", NL: "EUR", BE: "EUR", AT: "EUR", PT: "EUR", IE: "EUR", GR: "EUR", FI: "EUR", ZA: "ZAR", EG: "EGP", KE: "KES", MX: "MXN", BR: "BRL" };
+  function moneyFor(cc) {
+    const code = CURRENCY_BY_CC[cc]; if (!code) return "";
+    let sym = code, name = code;
+    try { sym = new Intl.NumberFormat("en", { style: "currency", currency: code, currencyDisplay: "narrowSymbol" }).formatToParts(1).find(p => p.type === "currency").value; } catch (e) {}
+    try { name = new Intl.DisplayNames(["en"], { type: "currency" }).of(code); } catch (e) {}
+    return (sym !== code ? sym + " " : "") + name;
+  }
+  function clockChange(A, B, at) {
+    const d = tzOff(at, B.tz) - tzOff(at, A.tz); if (!d) return "Same as " + A.city;
+    const h = Math.floor(Math.abs(d) / 60), m = Math.abs(d) % 60, amt = (h ? h + "h" : "") + (m ? (h ? " " : "") + m + "m" : "");
+    return (d < 0 ? "Back " : "Forward ") + amt;
+  }
+  const welcomed = new Set();
+  function showWelcome(f, preview) {
+    const A = ap(f.from), B = ap(f.to), t = legTimes(f), now = Date.now(), arrAt = t ? t.arr : now;
+    const km = dist(A, B), mins = t ? (t.arr - t.dep) / 60000 : estDur(f);
+    const before = state.stamps.filter(s => s.kind === "arr" && s.id !== "arr:" + f.id && ap(s.code).cc === B.cc).length;
+    const first = B.cc && !before;
+    const stamp = state.stamps.find(s => s.id === "arr:" + f.id) || { id: "arr:preview-" + f.id, kind: "arr", code: B.code, at: arrAt, r: -7, dx: 0 };
+    const z = zoned(now, B.tz), dateLine = DAYS[z.getUTCDay()] + " " + z.getUTCDate() + " " + MONS[z.getUTCMonth()];
+    const money = moneyFor(B.cc);
+    $("wlBody").innerHTML =
+      '<div class="wl-sky" aria-hidden="true"><svg viewBox="0 0 320 90" class="wl-scene"><path d="M0 78 H320" stroke="currentColor" stroke-width="2" stroke-dasharray="14 10" opacity=".35"/>' +
+        '<g class="wl-plane"><path d="' + PLANE_PATH + '" transform="rotate(90) scale(1.6)" fill="currentColor"/></g></svg></div>' +
+      '<div class="wl-card">' +
+        '<div class="wl-band"><span>ARRIVAL</span><span>' + esc((f.no ? f.no.toUpperCase() + " · " : "") + A.code + " → " + B.code) + "</span></div>" +
+        '<div class="wl-main"><small class="wl-k">WELCOME TO</small><h2 class="wl-city">' + esc(B.CITY) + "</h2>" +
+        '<p class="wl-ctry">' + esc(B.country || "") + (first ? ' <em>· new country in your passport</em>' : before ? " <em>· welcome back</em>" : "") + "</p>" +
+        '<div class="wl-time"><small>LOCAL TIME</small><b>' + hhmm(now, B.tz) + "</b><span>" + esc(dateLine) + "</span></div>" +
+        '<div class="wl-facts">' +
+          '<div><small>CLOCKS</small><b>' + esc(clockChange(A, B, arrAt)) + "</b></div>" +
+          (money ? "<div><small>MONEY</small><b>" + esc(money) + "</b></div>" : "") +
+          "<div><small>YOU FLEW</small><b>" + fmtInt(km) + " km</b></div>" +
+          "<div><small>IN THE AIR</small><b>" + esc(durWords(mins)) + "</b></div></div>" +
+        '<div class="wl-page"><div class="wl-stamp" id="wlStamp">' + stampArt(stamp) + '</div><span id="wlStampNote">' + (preview ? "This is a preview. Nothing was stamped." : "Stamped into your passport") + "</span></div>" +
+        '<div class="actions"><button class="btn ghost" id="wlDone">' + (preview ? "Close" : "Done") + "</button>" + (preview ? "" : '<button class="btn primary" id="wlPassport">See passport</button>') + "</div></div></div>";
+    const ov = $("welcome"); ov.classList.remove("go"); ov.classList.add("on"); void ov.offsetWidth; ov.classList.add("go");
+    setTimeout(() => { if (ov.classList.contains("on")) { $("wlStamp").classList.add("slam"); setTimeout(() => { stampSound(); if (navigator.vibrate) navigator.vibrate([22, 40, 10]); }, 180); } }, 1500);
+    $("wlDone").onclick = () => ov.classList.remove("on", "go");
+    const pp = $("wlPassport"); if (pp) pp.onclick = () => { ov.classList.remove("on", "go"); location.hash = "passport"; openPassportToNewest(); };
+  }
+  // shows once per flight, when the arrival stamp lands (GPS, the clock, or you) within 12 hours of landing
+  function maybeWelcome(f) {
+    if (!f || welcomed.has(f.id)) return;
+    const t = legTimes(f), now = Date.now(); if (!t || now < t.dep || now - t.arr > 12 * 3600000) return;   // GPS can land you before the scheduled time
+    const heard = state.ann[f.id] = state.ann[f.id] || [];
+    if (heard.includes("welcome")) return;
+    welcomed.add(f.id); heard.push("welcome"); if (!heard.includes("landed")) heard.push("landed");
+    commit({ quiet: true });
+    setTimeout(() => showWelcome(f, false), 500);
+  }
+  $("previewLanding").addEventListener("click", () => {
+    const now = Date.now(), o = flightsOrdered();
+    const f = state.flights.find(x => { const t = legTimes(x); return t && now >= t.dep && now < t.arr; }) || o.up[0] || o.past[0] || { id: "sample", from: "SIN", to: "CCU", no: "SQ 516", dep: "", arr: "", dur: 0 };
+    showWelcome(f, true);
+  });
 
   // ================= TRAVEL JOURNAL: tap the page, say what happened, it turns into a bit of travel paper =================
   // photos live in IndexedDB on the phone (too big for normal storage)

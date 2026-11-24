@@ -66,6 +66,7 @@
           <button class="btn red" id="gpsBtn">Start GPS</button>
         </div>
         <label class="switch"><input type="checkbox" id="annOn"> Captain announcements</label>
+        <button type="button" class="linkbtn preview-landing" id="previewLanding">Preview the landing screen</button>
       </div>
       <div class="legs" id="legChips"></div>
       <div class="mapcard">
@@ -147,6 +148,18 @@
 </div>
 
 
+
+<!-- scan a boarding pass -->
+<div class="overlay scan" id="scan" role="dialog" aria-modal="true" aria-label="Scan boarding pass">
+  <video id="scanVideo" playsinline muted autoplay></video>
+  <div class="scan-frame" aria-hidden="true"><i></i><b class="scan-line"></b></div>
+  <div class="scan-ui">
+    <p id="scanMsg">Starting the camera…</p>
+    <div class="scan-btns"><label class="btn" id="scanFileBtn"><input type="file" accept="image/*" id="scanFile" hidden>Choose a screenshot</label><button type="button" class="btn ghost" id="scanClose">Cancel</button></div>
+  </div>
+</div>
+<!-- landing moment -->
+<div class="overlay welcome" id="welcome" role="dialog" aria-modal="true" aria-label="Welcome"><div class="wl" id="wlBody"></div></div>
 
 <script src="app.js"></script>
 </body>
