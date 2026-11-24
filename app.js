@@ -528,38 +528,64 @@
   const TEAR_LEN = 92;            // px of pull to tear all the way through
   let T = null, quietUntil = 0;
   const passesEl = $("passes");
-  passesEl.addEventListener("pointerdown", e => {
-    if (stickerMode) return;
-    const stub = e.target.closest(".front > .stub"); if (!stub || T) return;
-    const tk = stub.closest(".ticket"); if (tk.classList.contains("torn")) return;
-    const f = state.flights.find(x => x.id === tk.dataset.id); if (!f) return;
-    const r = stub.getBoundingClientRect();
-    const dir = f.tear && f.tear.p > 0 ? f.tear.dir : (e.clientY - r.top < r.height / 2 ? "top" : "bottom");
-    T = { f, tk, stub, main: tk.querySelector(".main"), front: tk.querySelector(".front"), id: e.pointerId, x0: e.clientX, y0: e.clientY,
-      dir, live: false, H: stub.offsetHeight, w: stub.offsetWidth, W: tk.querySelector(".main").offsetWidth,
-      e: (f.tear && f.tear.p > 0 ? f.tear.p : 0) * stub.offsetHeight, ang: 0, lastE: 0, lastT: performance.now(), piece: null, raf: 0 };
+  // works the same for a finger (touch events, which iPhone Safari handles most reliably) and a mouse (pointer events)
+  function tearDown(x, y, target, id) {
+    if (stickerMode || T) return false;
+    const stub = target && target.closest && target.closest(".front > .stub"); if (!stub) return false;
+    const tk = stub.closest(".ticket"); if (tk.classList.contains("torn") || tk.classList.contains("flipped")) return false;
+    const f = state.flights.find(z => z.id === tk.dataset.id); if (!f) return false;
+    const partial = f.tear && f.tear.p > 0;
+    T = { f, tk, stub, main: tk.querySelector(".main"), front: tk.querySelector(".front"), id, x0: x, y0: y,
+      dir: partial ? f.tear.dir : null, live: false, H: stub.offsetHeight, w: stub.offsetWidth, W: tk.querySelector(".main").offsetWidth,
+      e: (partial ? f.tear.p : 0) * stub.offsetHeight, ang: 0, lastE: 0, lastT: performance.now(), piece: null, raf: 0 };
     T.lastE = T.e;
-  });
-  passesEl.addEventListener("pointermove", e => {
-    if (!T || e.pointerId !== T.id) return;
-    const dx = e.clientX - T.x0, dy = e.clientY - T.y0;
-    // pull = how far the stub is being dragged away from the pass: rightwards, and along the perforation
-    // away from where it's still attached (down for a top tear, up for a bottom tear), like tearing a real ticket
-    const along = T.dir === "top" ? dy : -dy;
+    return true;
+  }
+  function tearMove(x, y, id) {
+    if (!T || id !== T.id) return false;
+    const dx = x - T.x0, dy = y - T.y0;
     if (!T.live) {
-      if (dx < -10 || (along < -10 && dx < 6)) { T = null; return; }      // pushed the wrong way: ignore
-      if (Math.max(dx, 0) + Math.max(along, 0) < 7) return;
+      if (Math.hypot(dx, dy) < 6) return true;
+      if (dx < -8 && Math.abs(dy) < Math.abs(dx)) { T = null; return false; }   // dragging left, back into the pass: not a tear
+      // which end rips first depends on how you pull: drag down and the top gives way, drag up and the bottom does
+      if (!T.dir) T.dir = dy < -3 ? "bottom" : "top";
       T.live = true;
-      try { T.stub.setPointerCapture(e.pointerId); } catch (err) {}
       beginTear();
     }
-    e.preventDefault();
-    const pull = Math.max(0, Math.max(0, dx) * 1.1 + Math.max(0, along) * 0.9);
-    T.ang = Math.min(34, pull * 0.24);
-    const target = Math.max(0, Math.min(1, (pull - 10) / TEAR_LEN)) * T.H;
+    const along = T.dir === "top" ? dy : -dy;
+    const pull = Math.max(0, dx) * 1.1 + Math.max(0, along);
+    T.ang = Math.min(34, pull * 0.26);
+    const target = Math.max(0, Math.min(1, (pull - 8) / TEAR_LEN)) * T.H;
     if (target > T.e) T.e = target;          // paper never heals
     if (!T.raf) T.raf = requestAnimationFrame(drawTear);
+    return true;
+  }
+  // mouse / pen
+  passesEl.addEventListener("pointerdown", e => { if (e.pointerType === "touch") return; if (tearDown(e.clientX, e.clientY, e.target, "p" + e.pointerId)) { try { e.target.closest(".stub").setPointerCapture(e.pointerId); } catch (err) {} } });
+  passesEl.addEventListener("pointermove", e => { if (e.pointerType === "touch") return; if (tearMove(e.clientX, e.clientY, "p" + e.pointerId) && T && T.live) e.preventDefault(); });
+  // finger
+  passesEl.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    if (tearDown(t.clientX, t.clientY, e.target, "t" + t.identifier)) e.preventDefault();   // stops iOS from scrolling or selecting
+  }, { passive: false });
+  passesEl.addEventListener("touchmove", e => {
+    if (!T) return;
+    const t = Array.from(e.changedTouches).find(z => "t" + z.identifier === T.id); if (!t) return;
+    e.preventDefault();
+    tearMove(t.clientX, t.clientY, T.id);
+  }, { passive: false });
+  passesEl.addEventListener("touchend", e => {
+    if (!T) return;
+    const t = Array.from(e.changedTouches).find(z => "t" + z.identifier === T.id); if (!t) return;
+    const wasLive = T.live;
+    endTear({ pointerId: T.id });
+    if (!wasLive) {                         // a simple tap on the stub: show how
+      const stub = e.target.closest && e.target.closest(".front > .stub");
+      if (stub) { stub.classList.remove("nudge"); void stub.offsetWidth; stub.classList.add("nudge"); toast("Hold the stub and drag it down and to the right"); }
+    }
   });
+  passesEl.addEventListener("touchcancel", () => { if (T) endTear({ pointerId: T.id }); });
   function beginTear() {
     T.tk.classList.add("tearing");
     T.stub.classList.remove("nudge");
@@ -620,8 +646,8 @@
       else { t.piece.remove(); t.tk.classList.remove("tearing"); t.stub.style.clipPath = t.stub.style.webkitClipPath = ""; applyStaticTears(); }
     })(start);
   }
-  passesEl.addEventListener("pointerup", endTear);
-  passesEl.addEventListener("pointercancel", endTear);
+  passesEl.addEventListener("pointerup", e => { if (e.pointerType !== "touch") endTear({ pointerId: "p" + e.pointerId }); });
+  passesEl.addEventListener("pointercancel", e => { if (e.pointerType !== "touch") endTear({ pointerId: "p" + e.pointerId }); });
   function detach() {
     const t = T; t.done = true; T = null; quietUntil = performance.now() + 1500;
     tearStop(); snapSound();

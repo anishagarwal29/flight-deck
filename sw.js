@@ -1,5 +1,5 @@
 // Flight Deck service worker: keeps every file on the phone so the app opens with no internet.
-const CACHE = "flightdeck-v8";
+const CACHE = "flightdeck-v9";
 const FILES = [
   "./", "index.html", "app.css", "app.js", "map.json", "manifest.webmanifest",
   "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png",
@@ -17,15 +17,21 @@ self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
-// Serve from the phone first; quietly refresh the copy when online.
+// Online: always fetch the newest version (and keep a copy). Offline or slow: use the saved copy.
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET" || new URL(e.request.url).origin !== location.origin) return;
-  e.respondWith(
-    caches.open(CACHE).then(cache =>
-      cache.match(e.request, { ignoreSearch: true }).then(hit => {
-        const fresh = fetch(e.request).then(res => { if (res && res.ok) cache.put(e.request, res.clone()); return res; }).catch(() => hit);
-        return hit || fresh;
-      })
-    )
-  );
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    try {
+      const res = await Promise.race([
+        fetch(e.request, { cache: "no-cache" }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("slow")), 4000))
+      ]);
+      if (res && res.ok) cache.put(e.request, res.clone());
+      return res;
+    } catch (err) {
+      const hit = await cache.match(e.request, { ignoreSearch: true });
+      return hit || Response.error();
+    }
+  })());
 });
