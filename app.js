@@ -86,7 +86,7 @@
     return { v: 3, updatedAt: 0, name: "", flights: [], stamps: [], ppStickers: [], moments: [], ann: {}, annOn: true, annVoice: false, inr: { rate: 0, at: 0, manual: false }, checklist: defaultChecklist() };
   }
   const code3 = s => /^[A-Za-z]{3}$/.test(String(s || "")) ? String(s).toUpperCase() : "";
-  const cleanStickers = arr => Array.isArray(arr) ? arr.filter(k => k && typeof k.t === "string").slice(-20).map(k => ({ t: String(k.t), x: Math.max(0, Math.min(100, +k.x || 0)), y: Math.max(0, Math.min(100, +k.y || 0)), r: +k.r || 0, s: Math.max(0.6, Math.min(1.6, +k.s || 1)), pg: k.pg != null ? String(k.pg) : undefined })) : [];
+  const cleanStickers = (arr, max) => Array.isArray(arr) ? arr.filter(k => k && typeof k.t === "string").slice(-(max || 20)).map(k => ({ t: String(k.t), x: Math.max(0, Math.min(100, +k.x || 0)), y: Math.max(0, Math.min(100, +k.y || 0)), r: +k.r || 0, s: Math.max(0.6, Math.min(1.6, +k.s || 1)), pg: k.pg != null ? String(k.pg) : undefined })) : [];
   function sanitize(s) {
     const d = defaults();
     if (!s || typeof s !== "object") return d;
@@ -108,7 +108,7 @@
       }
       return { id, kind: kind === "arr" ? "arr" : "dep", code: code3(code) || "???", at: +x.at || Date.now(), r: +x.r || 0, dx: +x.dx || 0 };
     }).filter(x => x.code !== "???");
-    out.ppStickers = cleanStickers(s.ppStickers);
+    out.ppStickers = cleanStickers(s.ppStickers, 200);
     out.moments = (Array.isArray(s.moments) ? s.moments : []).filter(m => m && m.id).map(m => ({ id: String(m.id), kind: MOMENT_KINDS[m.kind] ? m.kind : "did", what: String(m.what || "").slice(0, 80), note: String(m.note || "").slice(0, 400),
       where: String(m.where || "").slice(0, 40), at: +m.at || Date.now(), hearts: Math.max(0, Math.min(3, +m.hearts || 0)), photo: !!m.photo, x: m.x == null ? null : +m.x, y: m.y == null ? null : +m.y, r: +m.r || 0 }));
     out.ann = s.ann && typeof s.ann === "object" ? s.ann : {};
@@ -1175,10 +1175,10 @@
     else cl.innerHTML = "";
     const groups = []; list.forEach(c => { let g = groups[groups.length - 1]; if (!g || g.sec !== c.sec) groups.push(g = { sec: c.sec, items: [] }); g.items.push(c); });
     $("ckList").innerHTML = (list.length ? "" : '<p class="note ck-empty">Nothing on the list yet. Add the first thing to pack.</p>') + groups.map((g, gi) =>
-      '<div class="ck-div"><input value="' + esc(g.sec || "") + '" data-gi="' + gi + '" placeholder="NAME THIS" aria-label="Divider name" enterkeyhint="done"></div>' +
+      '<div class="ck-div"><input value="' + esc(g.sec || "") + '" data-gi="' + gi + '" aria-label="Divider name" enterkeyhint="done"></div>' +
       g.items.map(c => '<div class="ck-item' + (c.done ? " done" : "") + '" data-id="' + esc(c.id) + '"><div class="ck-del">DELETE</div><div class="ck-row">' +
         '<button class="ck-box" data-tick aria-label="Tick">' + CHECK_SVG + '</button>' +
-        '<input value="' + esc(c.label) + '" data-label placeholder="Something to pack" aria-label="Item" enterkeyhint="next"></div></div>').join("")).join("");
+        '<input value="' + esc(c.label) + '" data-label aria-label="Item" enterkeyhint="next"></div></div>').join("")).join("");
     $("ckList")._groups = groups;
     if (focusId) { const inp = document.querySelector('.ck-item[data-id="' + focusId + '"] input'); if (inp) { inp.focus(); const n = focusEnd ? inp.value.length : 0; try { inp.setSelectionRange(n, n); } catch (e) {} } }
   }
@@ -1245,7 +1245,7 @@
   document.addEventListener("keydown", e => { if (e.key === "Escape" && scrim.classList.contains("on")) closeSheet(); });
   function apLabel(code) { const a = ap(code); return a.unknown ? code : a.code + " · " + a.city + (a.country ? ", " + a.country : ""); }
   function airportField(id, label, code) {
-    return '<div class="field ap-field"><label for="' + id + '">' + label + '</label><input type="text" id="' + id + '" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="City or code, like Tokyo or NRT" value="' + esc(code ? apLabel(code) : "") + '" data-code="' + esc(code || "") + '"><div class="ap-sug" role="listbox"></div></div>';
+    return '<div class="field ap-field"><label for="' + id + '">' + label + '</label><input type="text" id="' + id + '" autocomplete="off" autocapitalize="characters" spellcheck="false" value="' + esc(code ? apLabel(code) : "") + '" data-code="' + esc(code || "") + '"><div class="ap-sug" role="listbox"></div></div>';
   }
   function openFlightEditor(id) {
     const f = id ? state.flights.find(x => x.id === id) : null;
@@ -1254,11 +1254,11 @@
     const from = f ? f.from : (last ? last.to : ""), to = f ? f.to : "";
     sheet.innerHTML = '<form id="flightForm" style="display:flex;flex-direction:column;gap:14px" autocomplete="off"><h2>' + (f ? "Edit flight" : "Add a flight") + "</h2>" +
       '<div class="grid2">' + airportField("fFrom", "From", from) + airportField("fTo", "To", to) + "</div>" +
-      '<div class="grid2"><div class="field"><label for="fNo">Flight number</label><input type="text" id="fNo" value="' + esc(f ? f.no : "") + '" placeholder="SQ 516" autocomplete="off"></div>' +
-      '<div class="field"><label for="fSeat">Seat</label><input type="text" id="fSeat" value="' + esc(f ? f.seat : "") + '" placeholder="23A" autocomplete="off"></div></div>' +
+      '<div class="grid2"><div class="field"><label for="fNo">Flight number</label><input type="text" id="fNo" value="' + esc(f ? f.no : "") + '" autocomplete="off"></div>' +
+      '<div class="field"><label for="fSeat">Seat</label><input type="text" id="fSeat" value="' + esc(f ? f.seat : "") + '" autocomplete="off"></div></div>' +
       '<div class="field"><label for="fDep" id="fDepL">Departs (local time)</label><input type="datetime-local" id="fDep" value="' + esc(f ? f.dep : "") + '"></div>' +
       '<div class="field"><label for="fArr" id="fArrL">Lands (local time, optional)</label><input type="datetime-local" id="fArr" value="' + esc(f ? f.arr : "") + '"><small class="fine" id="fArrHint"></small></div>' +
-      '<div class="grid2"><div class="field"><label for="fGate">Gate</label><input type="text" id="fGate" value="' + esc(f ? f.gate : "") + '" placeholder="B4" autocomplete="off"></div><div></div></div>' +
+      '<div class="grid2"><div class="field"><label for="fGate">Gate</label><input type="text" id="fGate" value="' + esc(f ? f.gate : "") + '" autocomplete="off"></div><div></div></div>' +
       '<p class="fine" id="fErr" style="color:var(--red)"></p>' +
       '<div class="actions">' + (f ? '<button type="button" class="btn danger" id="fDelete">Delete</button>' : "") + '<span style="flex:1"></span><button type="button" class="btn ghost" id="cancelSheet">Cancel</button><button type="submit" class="btn primary">' + (f ? "Save" : "Add flight") + "</button></div></form>";
     scrim.classList.add("on");
@@ -1495,12 +1495,13 @@
     const m = targetUnder(x, y); if (m) m.el.classList.add("drop");
   }
   $("trayRow").addEventListener("pointerdown", e => {
+    if (e.pointerType === "touch") return;   // fingers go through the touch handlers below
     const b = e.target.closest("[data-st]"); if (!b) return;
     e.preventDefault();
     startStickerDrag(e, b.dataset.st, b, null);
   });
   function grabPlaced(e) {
-    if (!stickerMode) return;
+    if (!stickerMode || e.pointerType === "touch") return;
     const s = e.target.closest(".stk"); if (!s) return;
     e.preventDefault(); e.stopPropagation();
     if (s.dataset.psk != null) {
@@ -1531,7 +1532,7 @@
     if (!d.moved && !d.existing) {           // a tap on the tray: stick it somewhere you can see
       const el = curTab === "passport" ? document.querySelector("#ppBook .pp-sheet") :
         Array.from(document.querySelectorAll("#passes .ticket:not(.flipped) .main")).find(m => { const r = m.getBoundingClientRect(); return r.bottom > 80 && r.top < innerHeight - 260; });
-      if (el) { const r = el.getBoundingClientRect(); x = r.left + r.width * (0.2 + Math.random() * 0.6); y = r.top + Math.min(r.height, innerHeight - 300 - r.top) * (0.25 + Math.random() * 0.5); tgt = targetUnder(x, y) || (el.classList.contains("main") ? { el, kind: "pass", id: el.closest(".ticket").dataset.id } : { el, kind: "page", id: el.dataset.pg }); }
+      if (el) { const r = el.getBoundingClientRect(); x = r.left + r.width * (0.2 + Math.random() * 0.6); y = r.top + r.height * (0.25 + Math.random() * 0.5); tgt = targetUnder(x, y) || (el.classList.contains("main") ? { el, kind: "pass", id: el.closest(".ticket").dataset.id } : { el, kind: "page", id: el.dataset.pg }); }
     }
     if (!d.moved && d.existing) { d.existing.el.style.visibility = ""; d.fl.remove(); return; }
     if (tgt) {
@@ -1557,6 +1558,21 @@
   }
   window.addEventListener("pointerup", dropSticker);
   window.addEventListener("pointercancel", dropSticker);
+  // fingers: plain touch events, like the stub tear (iPhone Safari cancels pointer drags)
+  const asPtr = (e, t) => ({ clientX: t.clientX, clientY: t.clientY, pointerId: "touch", pointerType: "mouse", target: e.target, preventDefault: () => e.preventDefault(), stopPropagation: () => e.stopPropagation() });
+  $("trayRow").addEventListener("touchstart", e => {
+    const b = e.target.closest("[data-st]"); if (!b || SD) return;
+    e.preventDefault(); startStickerDrag(asPtr(e, e.touches[0]), b.dataset.st, b, null);
+  }, { passive: false });
+  ["passes", "ppBook"].forEach(id => $(id).addEventListener("touchstart", e => { if (!stickerMode || SD || !e.target.closest(".stk")) return; grabPlaced(asPtr(e, e.touches[0])); }, { capture: true, passive: false }));
+  window.addEventListener("touchmove", e => {
+    if (!SD || SD.id !== "touch") return;
+    e.preventDefault(); const t = e.touches[0];
+    if (Math.abs(t.clientX - SD.x0) + Math.abs(t.clientY - SD.y0) > 6) SD.moved = true;
+    moveFloat(t.clientX, t.clientY);
+  }, { passive: false });
+  const touchDrop = e => { if (!SD || SD.id !== "touch") return; const t = e.changedTouches[0]; dropSticker({ clientX: t.clientX, clientY: t.clientY, pointerId: "touch" }); };
+  window.addEventListener("touchend", touchDrop); window.addEventListener("touchcancel", touchDrop);
 
   // ================= PASSPORT (any trip, as many pages as you need) =================
   const INK = ["#3b47a8", "#b0294a", "#2d7a4c", "#6b3fa0", "#1f7a8c", "#8a4b1c", "#c2410c", "#1e3a8a"];
@@ -1686,7 +1702,7 @@
       const surname = parts.length > 1 ? parts[parts.length - 1] : "", given = parts.length > 1 ? parts.slice(0, -1).join(" ") : nm;
       return ppSheet("info", "info", '<div class="pp-head">PASSPORT · FLIGHT DECK<span>P &nbsp;·&nbsp; ' + passportNo() + "</span></div>" +
         '<div class="id-row"><div class="id-photo">' + SILHOUETTE + '<span class="holo" aria-hidden="true"></span></div><div class="id-fields">' +
-        '<label class="id-f"><small>NAME</small><input type="text" id="ppName" value="' + esc(nm) + '" placeholder="Tap to add" maxlength="40" autocomplete="off" autocapitalize="words"></label>' +
+        '<label class="id-f"><small>NAME</small><input type="text" id="ppName" value="' + esc(nm) + '" maxlength="40" autocomplete="off" autocapitalize="words"></label>' +
         (surname ? '<div class="id-f"><small>SURNAME / GIVEN NAMES</small><b>' + esc(surname.toUpperCase()) + " / " + esc(given.toUpperCase()) + "</b></div>" : "") +
         '<div class="id-f"><small>HOME AIRPORT</small><b>' + (st.home ? esc(st.home + " · " + ap(st.home).city.toUpperCase()) : "—") + "</b></div>" +
         '<div class="id-f"><small>DATE OF ISSUE</small><b>' + (st.first ? stampDate(st.first.dep, "UTC") : "—") + '</b></div><div class="id-f"><small>AUTHORITY</small><b>FLIGHT DECK</b></div></div></div>' +
@@ -1914,14 +1930,14 @@
     sheet.innerHTML = '<form id="moForm" class="mo-form" autocomplete="off"><h2>' + (m ? "Edit moment" : "Log a moment") + "</h2>" +
       '<div class="mo-kinds" role="radiogroup">' + Object.keys(MOMENT_KINDS).map(k => '<button type="button" role="radio" data-kind="' + k + '" style="--ink:' + MOMENT_KINDS[k].ink + '">' + kindIcon(k) + "<span>" + MOMENT_KINDS[k].label + "</span></button>").join("") + "</div>" +
       '<div class="field"><label for="moWhat">What was it?</label><input type="text" id="moWhat" maxlength="80" value="' + esc(m ? m.what : "") + '"></div>' +
-      '<div class="field"><label for="moNote">A line for the journal <span class="fine">(optional)</span></label><textarea id="moNote" rows="2" maxlength="400" placeholder="How was it? Who were you with?">' + esc(m ? m.note : "") + "</textarea></div>" +
+      '<div class="field"><label for="moNote">A line for the journal <span class="fine">(optional)</span></label><textarea id="moNote" rows="2" maxlength="400">' + esc(m ? m.note : "") + "</textarea></div>" +
       '<div class="mo-row"><label class="mo-photo" id="moPhotoBtn"><input type="file" accept="image/*" id="moPhoto" hidden><span id="moPhotoPrev"></span></label>' +
       '<div class="mo-side"><div class="field"><label>How good?</label><div class="mo-hearts" id="moHearts">' + [1, 2, 3].map(n => '<button type="button" data-h="' + n + '" aria-label="' + n + ' hearts"><svg viewBox="0 0 24 24">' + HEART + "</svg></button>").join("") + "</div></div>" +
-      '<div class="field"><label for="moWhere">Where</label><input type="text" id="moWhere" maxlength="40" value="' + esc(m ? m.where : placeNow()) + '" placeholder="City"></div></div></div>' +
+      '<div class="field"><label for="moWhere">Where</label><input type="text" id="moWhere" maxlength="40" value="' + esc(m ? m.where : placeNow()) + '"></div></div></div>' +
       '<p class="fine" id="moErr" style="color:var(--red)"></p>' +
       '<div class="actions"><button type="button" class="btn ghost" id="cancelSheet">Cancel</button><button type="submit" class="btn red">' + (m ? "Save" : "Stamp it") + "</button></div></form>";
     scrim.classList.add("on");
-    const setKind = k => { kind = k; sheet.querySelectorAll("[data-kind]").forEach(b => b.setAttribute("aria-checked", b.dataset.kind === k)); $("moWhat").placeholder = MOMENT_KINDS[k].ph; };
+    const setKind = k => { kind = k; sheet.querySelectorAll("[data-kind]").forEach(b => b.setAttribute("aria-checked", b.dataset.kind === k)); };
     const setHearts = n => { hearts = n; sheet.querySelectorAll("[data-h]").forEach(b => b.classList.toggle("on", +b.dataset.h <= n)); };
     const showPhoto = () => { $("moPhotoPrev").innerHTML = draftPhoto ? '<img src="' + draftPhoto + '" alt=""><b class="mo-x" id="moPhotoX">×</b>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg><small>Add a photo</small>'; $("moPhotoBtn").classList.toggle("on", !!draftPhoto); };
     setKind(kind); setHearts(hearts); showPhoto();

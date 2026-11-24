@@ -767,3 +767,10 @@ textarea:focus, input[type=text]:focus { outline: none; border-color: var(--ink)
 .hand { font-family: "Caveat", cursive !important; font-weight: 600 !important; color: #23307a; }
 h2.hand { font-size: 34px !important; line-height: 1.05; }
 .note-hand { font-size: 23px; line-height: 1.2; margin: 0; }
+
+/* passport: smaller so the whole page fits on screen with room around it */
+.pp-book { width: 358px; max-width: 100%; margin: 0 auto; zoom: .8; }
+.log-btn { padding: 10px 12px; gap: 12px; }
+.log-btn b { font-size: 19px; }
+.log-btn small { font-size: 12px; }
+.lb-stamp { transform: scale(.8); width: 40px; height: 46px; }
