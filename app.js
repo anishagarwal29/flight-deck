@@ -84,7 +84,7 @@
     const out = { v: 3, updatedAt: +s.updatedAt || 0, name: String(s.name || "").slice(0, 40) };
     out.flights = (Array.isArray(s.flights) ? s.flights : []).filter(g => g && g.id && code3(g.from) && code3(g.to)).map(g => ({
       id: String(g.id), from: code3(g.from), to: code3(g.to), no: String(g.no || ""), dep: String(g.dep || ""), arr: String(g.arr || ""),
-      dur: Math.max(10, +g.dur || 0) || 0, seat: String(g.seat || ""), gate: String(g.gate || ""), torn: !!g.torn, tornAt: +g.tornAt || 0,
+      dur: +g.dur > 0 ? Math.max(10, +g.dur) : 0, seat: String(g.seat || ""), gate: String(g.gate || ""), torn: !!g.torn, tornAt: +g.tornAt || 0,
       tear: g.tear && typeof g.tear.p === "number" ? { p: Math.max(0, Math.min(0.97, g.tear.p)), dir: g.tear.dir === "bottom" ? "bottom" : "top" } : null,
       stickers: cleanStickers(g.stickers), added: +g.added || 0
     }));
@@ -303,35 +303,24 @@
     return { left: uniq(L), right: uniq(Rr), ahead: uniq(ahead)[0] || null };
   }
 
-  // ================= GPS =================
-  const gps = { on: false, watch: null, last: null, prev: null, status: "off", err: "", airborne: false, slowCount: 0 };
+  // ================= GPS: one quick fix when you ask, never left running (battery) =================
+  const gps = { on: false, watch: null, last: null, prev: null, status: "off", err: "", airborne: false, slowCount: 0, calib: null };
+  let gpsTimer = null;
   function startGPS() {
     if (!("geolocation" in navigator)) { gps.status = "denied"; gps.err = "This browser has no location support."; renderGPS(); return; }
-    gps.on = true; gps.status = "searching"; gps.err = "";
-    try { localStorage.setItem(LS_GPS, "1"); } catch (e) {}
+    if (gps.status === "searching") return;
+    gps.status = "searching"; gps.err = ""; gps.on = true;
+    renderGPS();
     try {
-      gps.watch = navigator.geolocation.watchPosition(onFix, onGpsErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 120000 });
-    } catch (e) { gps.status = "denied"; gps.err = "Location is blocked here. Open your own hosted version in Safari."; }
-    renderGPS(); renderFlight();
+      navigator.geolocation.getCurrentPosition(p => { gps.on = false; onFix(p); }, e => { gps.on = false; onGpsErr(e); }, { enableHighAccuracy: true, maximumAge: 0, timeout: 75000 });
+    } catch (e) { gps.on = false; gps.status = "denied"; gps.err = "Location is blocked here. Open the app in Safari."; renderGPS(); }
   }
-  function pauseGPS() {
-    if (gps.watch != null) { try { navigator.geolocation.clearWatch(gps.watch); } catch (e) {} }
-    gps.watch = null;
-  }
-  function resumeGPS() {
-    if (!gps.on || gps.watch != null || !("geolocation" in navigator)) return;
-    gps.status = gps.last ? "lost" : "searching";
-    try { gps.watch = navigator.geolocation.watchPosition(onFix, onGpsErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 120000 }); } catch (e) {}
-  }
-  function stopGPS() {
-    if (gps.watch != null) { try { navigator.geolocation.clearWatch(gps.watch); } catch (e) {} }
-    gps.on = false; gps.watch = null; gps.status = "off";
-    try { localStorage.removeItem(LS_GPS); } catch (e) {}
-    renderGPS(); renderFlight();
-  }
+  function pauseGPS() {}
+  function resumeGPS() {}
+  function stopGPS() { gps.on = false; if (gps.status === "searching") gps.status = gps.last ? "locked" : "off"; renderGPS(); }
   function onGpsErr(e) {
-    if (e && e.code === 1) { gps.status = "denied"; gps.err = "Location permission was refused. Open the app in Safari (not the home-screen icon) and allow location."; stopGPS(); gps.status = "denied"; }
-    else { gps.status = gps.last ? "lost" : "searching"; }
+    if (e && e.code === 1) { gps.status = "denied"; gps.err = "Location permission was refused. Open the app in Safari (not the home-screen icon) and allow location."; }
+    else { gps.status = "nofix"; }
     renderGPS(); renderFlight();
   }
   function onFix(pos) {
@@ -344,15 +333,22 @@
     else if (prev && dist(prev, fix) > 0.3) fix.hdg = bearing(prev, fix);
     else if (prev) fix.hdg = prev.hdg;
     gps.prev = prev; gps.last = fix; gps.status = "locked";
+    // use this fix to correct the time-based estimate for the rest of the flight (late take-off, headwinds...)
+    const live = liveLegBySchedule(t);
+    if (live) {
+      const lt = legTimes(live), A = ap(live.from), B = ap(live.to), da = dist(A, fix), db = dist(fix, B);
+      const progGps = da / Math.max(1, da + db), progSched = (t - lt.dep) / (lt.arr - lt.dep);
+      gps.calib = { leg: live.id, delta: progGps - progSched, at: t };
+    }
     const spd = fix.spd || 0;
-    if (!gps.airborne && spd > 60) { gps.airborne = true; gps.slowCount = 0; toast("Wheels up ✈  Enjoy the flight"); }
-    else if (gps.airborne && spd < 25) {
-      if (++gps.slowCount >= 3) {
+    if (!gps.airborne && spd > 60) { gps.airborne = true; gps.slowCount = 0; }
+    else if (spd < 25 && live === null) {
+      {
         gps.airborne = false;
         const near = nearestAirport(fix);
         const f = near && state.flights.find(z => z.to === near.code && (() => { const tt = legTimes(z); return !tt || Math.abs(tt.arr - Date.now()) < 18 * 3600000; })());
         if (f) { addStamp("arr", f); announce(f, "landed", true); }
-        toast(near ? "Touchdown in " + near.city + (f ? ". Passport stamped!" : "") : "Touchdown");
+        if (f) toast("Welcome to " + near.city + ". Passport stamped!");
       }
     }
     else gps.slowCount = 0;
@@ -393,7 +389,7 @@
     if (!state.flights.length) return null;
     const legs = flightLegs();
     const chosen = () => state.flights.find(f => f.id === selLeg) || legs[0] || state.flights[0];
-    const fresh = gps.last && now - gps.last.t < 120000;
+    const fresh = gps.last && now - gps.last.t < 180000;
     if (fresh) {
       const leg = userPickedLeg ? chosen() : (pickLeg(gps.last) || chosen());
       const A = ap(leg.from), B = ap(leg.to);
@@ -405,7 +401,10 @@
     const leg = live || chosen();
     const A = ap(leg.from), B = ap(leg.to), t = legTimes(leg);
     let prog, src;
-    if (t && now >= t.dep && now < t.arr) { prog = (now - t.dep) / (t.arr - t.dep); src = "est"; }
+    if (t && now >= t.dep && now < t.arr) {
+      prog = (now - t.dep) / (t.arr - t.dep); src = "est";
+      if (gps.calib && gps.calib.leg === leg.id) prog = Math.max(0, Math.min(0.995, prog + gps.calib.delta));
+    }
     else if (t && now >= t.arr && !userPickedLeg && live) { prog = 1; src = "landed"; }
     else { prog = $("prev").value / 100; src = "preview"; }
     const p = interp(A, B, prog), q = interp(A, B, Math.min(0.999, prog + 0.005)), p0 = interp(A, B, Math.max(0, prog - 0.005));
@@ -1039,7 +1038,7 @@
     const tag = $("modeTag");
     const onGround = P.src === "gps" && (P.spd || 0) < 15;
     tag.className = "mode-tag " + (P.src === "gps" ? "gps" : P.src === "est" ? "est" : "");
-    tag.textContent = P.src === "gps" ? (onGround ? "GPS · ON THE GROUND" : "LIVE GPS") : P.src === "est" ? "ESTIMATE" : P.src === "landed" ? "LANDED" : "PREVIEW";
+    tag.textContent = P.src === "gps" ? (onGround ? "GPS · ON THE GROUND" : "GPS FIX") : P.src === "est" ? (gps.calib && gps.calib.leg === f.id ? "ESTIMATE · GPS-CORRECTED" : "ESTIMATE") : P.src === "landed" ? "LANDED" : "PREVIEW";
     let overLbl, overTxt;
     if (P.src === "gps") { overLbl = onGround ? "YOU'RE IN" : "NOW FLYING OVER"; overTxt = cap(whereLabel(P.lat, P.lon)); }
     else if (P.prog <= 0.003) { overLbl = "STARTING IN"; overTxt = A.city; }
@@ -1142,18 +1141,17 @@
   // ================= GPS card =================
   function renderGPS() {
     const dot = $("gpsDot"), title = $("gpsTitle"), sub = $("gpsSub"), btn = $("gpsBtn");
-    dot.className = "gps-dot " + (gps.status === "off" ? "" : gps.status);
-    btn.textContent = gps.on ? "Stop GPS" : "Start GPS";
-    btn.className = gps.on ? "btn" : "btn red";
-    const ago = gps.last ? Math.round((Date.now() - gps.last.t) / 1000) : null;
-    if (gps.status === "off") { title.textContent = "GPS is off"; sub.textContent = "Turn it on once. After that it only runs while you're looking at this tab, then switches off to save battery."; }
-    else if (gps.status === "searching") { title.textContent = "Searching for satellites…"; sub.textContent = "Hold the phone near the window. The first lock can take a minute or two."; }
-    else if (gps.status === "locked" && ago != null && ago > 120) { dot.className = "gps-dot lost"; title.textContent = "Signal lost " + Math.round(ago / 60) + " min ago"; sub.textContent = "Showing an estimate until it locks again. Move closer to the window."; }
-    else if (gps.status === "locked") { title.textContent = "Locked on" + (gps.last.acc ? " · ±" + fmtInt(gps.last.acc) + " m" : ""); sub.textContent = "Updated " + (ago < 3 ? "just now" : ago + "s ago") + ". GPS only runs while this tab is open, so lock your phone between check-ins."; }
-    else if (gps.status === "lost") { title.textContent = "Lost the signal"; sub.textContent = "Showing an estimate until it locks again. Move closer to the window."; }
+    dot.className = "gps-dot " + (gps.status === "off" || gps.status === "nofix" ? "" : gps.status);
+    btn.textContent = gps.status === "searching" ? "Cancel" : "Check my position";
+    btn.className = gps.status === "searching" ? "btn" : "btn red";
+    const ago = gps.last ? Math.round((Date.now() - gps.last.t) / 60000) : null;
+    if (gps.status === "searching") { title.textContent = "Finding you…"; sub.textContent = "Hold the phone near the window. It can take up to a minute in the air, then GPS switches off."; }
     else if (gps.status === "denied") { title.textContent = "Can't use location"; sub.textContent = gps.err; }
+    else if (gps.status === "nofix") { title.textContent = "Couldn't get a fix"; sub.textContent = "Try again closer to the window. Until then the map uses your flight times."; }
+    else if (gps.last) { title.textContent = ago < 1 ? "Found you just now" : "Last checked " + ago + " min ago"; sub.textContent = gps.calib ? "Your estimate has been corrected with that fix. GPS is off again, so no battery drain." : "GPS is off again, so no battery drain."; }
+    else { title.textContent = "Using your flight times"; sub.textContent = "No GPS running, so no battery drain. Tap to check once; it turns off right after."; }
   }
-  $("gpsBtn").addEventListener("click", () => gps.on ? stopGPS() : startGPS());
+  $("gpsBtn").addEventListener("click", () => gps.status === "searching" ? stopGPS() : startGPS());
 
   // ================= CHECKLIST =================
   let ckEditing = false;
@@ -1233,7 +1231,7 @@
   });
 
   // ================= sheet: add / edit a flight =================
-  const scrim = $("scrim"), sheet = $("sheet");
+  const scrim = $("scrim"), sheet = $("sheet"), sheetEl = sheet;
   function closeSheet() { scrim.classList.remove("on"); sheet.innerHTML = ""; }
   scrim.addEventListener("click", e => { if (e.target === scrim) closeSheet(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && scrim.classList.contains("on")) closeSheet(); });
@@ -1296,7 +1294,7 @@
       closeSheet();
       if (curTab !== "passes") location.hash = "passes";
       commit();
-      toast(f ? "Flight saved" : "New boarding pass issued ✈");
+      toast(f ? "Flight saved" : "New boarding pass issued");
     };
   }
 
@@ -1574,7 +1572,7 @@
       '<defs><path id="' + uidp + '" d="M60 60 m-47 0 a47 47 0 1 1 94 0 a47 47 0 1 1 -94 0"/></defs><text class="st-s"><textPath href="#' + uidp + '" startOffset="1%" textLength="290">' + esc(kind + " · " + city + " · " + (ctry || kind) + " ·") + "</textPath></text>" +
       '<text x="60" y="62" text-anchor="middle" class="st-b">' + s.code + '</text><text x="60" y="78" text-anchor="middle" class="st-d">' + date + "</text>" + plane(pr, 60, 34, 0.7) + "</svg>";
     if (shape === 2) return '<svg viewBox="0 0 150 100" class="ink" style="color:' + color + '"><path d="M30 6 H120 L146 50 L120 94 H30 L4 50 Z" fill="none" stroke="currentColor" stroke-width="3.5"/><path d="M34 13 H116 L138 50 L116 87 H34 L12 50 Z" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
-      '<text x="75" y="32" text-anchor="middle" class="st-s"' + fitText(kind + " · " + ctry, 100, 9.5) + ">" + esc(kind + (ctry ? " · " + ctry : "")) + '</text><text x="75" y="58" text-anchor="middle" class="st-b"' + fitText(city, 100, 23) + ">" + esc(city) + '</text><text x="75" y="76" text-anchor="middle" class="st-d">' + date + "</text>" + plane(pr, 26, 50, 0.6) + plane(pr, 124, 50, 0.6) + "</svg>";
+      '<text x="75" y="32" text-anchor="middle" class="st-s"' + fitText(kind + " · " + ctry, 84, 9.5) + ">" + esc(kind + (ctry ? " · " + ctry : "")) + '</text><text x="75" y="58" text-anchor="middle" class="st-b"' + fitText(city, 82, 23) + ">" + esc(city) + '</text><text x="75" y="76" text-anchor="middle" class="st-d">' + date + "</text>" + plane(pr, 22, 50, 0.55) + plane(pr, 128, 50, 0.55) + "</svg>";
     if (shape === 3) return '<svg viewBox="0 0 150 100" class="ink" style="color:' + color + '"><ellipse cx="75" cy="50" rx="70" ry="45" fill="none" stroke="currentColor" stroke-width="3.5"/><ellipse cx="75" cy="50" rx="62" ry="37" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 3"/>' +
       '<text x="75" y="34" text-anchor="middle" class="st-s">' + kind + " · " + s.code + '</text><text x="75" y="58" text-anchor="middle" class="st-b"' + fitText(city, 104, 23) + ">" + esc(city) + '</text><text x="75" y="74" text-anchor="middle" class="st-d">' + date + "</text></svg>";
     return '<svg viewBox="0 0 120 120" class="ink" style="color:' + color + '"><rect x="5" y="5" width="110" height="110" rx="14" fill="none" stroke="currentColor" stroke-width="5" stroke-dasharray="1 7" stroke-linecap="round"/><rect x="14" y="14" width="92" height="92" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>' +
@@ -1597,88 +1595,141 @@
       if (t && now > t.arr) addStamp("arr", f, t.arr);
     }
   }
-  const flag = cc => cc && cc.length === 2 ? String.fromCodePoint(...[...cc.toUpperCase()].map(c => 127397 + c.charCodeAt(0))) : "";
-  function travelStats() {
-    const now = Date.now(), flown = state.flights.filter(f => { const t = legTimes(f); return f.torn || (t && t.arr < now); });
-    let km = 0, mins = 0, longest = null; const airports = new Set(), countries = new Map();
+  const AIRLINES = { SQ: "Singapore Airlines", TR: "Scoot", "3K": "Jetstar Asia", "6E": "IndiGo", AI: "Air India", IX: "Air India Express", UK: "Vistara", SG: "SpiceJet", QP: "Akasa Air",
+    EK: "Emirates", QR: "Qatar Airways", EY: "Etihad", TG: "Thai Airways", MH: "Malaysia Airlines", AK: "AirAsia", D7: "AirAsia X", FD: "Thai AirAsia", OD: "Batik Air", ID: "Batik Air",
+    GA: "Garuda Indonesia", CX: "Cathay Pacific", UO: "HK Express", JL: "Japan Airlines", NH: "ANA", KE: "Korean Air", OZ: "Asiana", CI: "China Airlines", BR: "EVA Air",
+    CA: "Air China", MU: "China Eastern", CZ: "China Southern", BA: "British Airways", VS: "Virgin Atlantic", LH: "Lufthansa", AF: "Air France", KL: "KLM", LX: "Swiss",
+    TK: "Turkish Airlines", QF: "Qantas", JQ: "Jetstar", VA: "Virgin Australia", NZ: "Air New Zealand", AA: "American", UA: "United", DL: "Delta", AC: "Air Canada",
+    UL: "SriLankan", BG: "Biman", PR: "Philippine Airlines", "5J": "Cebu Pacific", VN: "Vietnam Airlines", VJ: "VietJet", ET: "Ethiopian", SV: "Saudia", WY: "Oman Air",
+    GF: "Gulf Air", FZ: "flydubai", G9: "Air Arabia", U2: "easyJet", FR: "Ryanair", W6: "Wizz Air", EI: "Aer Lingus", IB: "Iberia", AZ: "ITA Airways", SK: "SAS", AY: "Finnair", OS: "Austrian" };
+  const airlineOf = no => { const m = /^\s*([A-Z0-9]{2})\s*\d/i.exec(no || ""); return m ? (AIRLINES[m[1].toUpperCase()] || m[1].toUpperCase()) : null; };
+  function travelStats(year) {
+    const now = Date.now();
+    const flown = state.flights.filter(f => { const t = legTimes(f); if (!(f.torn || (t && t.arr < now))) return false; return !year || (t && new Date(t.dep).getUTCFullYear() === year); });
+    let km = 0, mins = 0, longest = null, shortest = null;
+    const airports = new Map(), countries = new Map(), airlines = new Map();
     flown.forEach(f => {
       const L = legLen(f), t = legTimes(f); km += L; mins += t ? (t.arr - t.dep) / 60000 : estDur(f);
       if (!longest || L > longest.L) longest = { f, L };
-      [f.from, f.to].forEach(c => airports.add(c));
+      if (!shortest || L < shortest.L) shortest = { f, L };
+      [f.from, f.to].forEach(c => airports.set(c, (airports.get(c) || 0) + 1));
+      const al = airlineOf(f.no); if (al) airlines.set(al, (airlines.get(al) || 0) + 1);
+      [f.from, f.to].forEach(c => { const cc = ap(c).cc; if (cc && !countries.has(cc)) countries.set(cc, t ? t.dep : now); });
     });
-    state.stamps.slice().sort((a, b) => a.at - b.at).forEach(s => { const cc = ap(s.code).cc; if (cc && !countries.has(cc)) countries.set(cc, s.at); });
-    flown.forEach(f => [f.from, f.to].forEach(c => { const cc = ap(c).cc; if (cc && !countries.has(cc)) countries.set(cc, legTimes(f) ? legTimes(f).dep : now); }));
-    const first = flown.map(f => legTimes(f)).filter(Boolean).sort((a, b) => a.dep - b.dep)[0];
+    state.stamps.forEach(s => { const cc = ap(s.code).cc; if (cc && (!year || new Date(s.at).getUTCFullYear() === year)) { if (!countries.has(cc) || countries.get(cc) > s.at) countries.set(cc, s.at); } });
+    const first = state.flights.map(f => legTimes(f)).filter(Boolean).sort((a, b) => a.dep - b.dep)[0];
     const homeCount = {}; state.flights.forEach(f => { homeCount[f.from] = (homeCount[f.from] || 0) + 1; });
     const home = Object.keys(homeCount).sort((a, b) => homeCount[b] - homeCount[a])[0];
-    return { flights: flown.length, km, mins, airports: airports.size, countries, longest, first, home };
+    const upcoming = state.flights.filter(f => { const t = legTimes(f); return !f.torn && (!t || t.arr >= now); }).length;
+    return { flights: flown.length, km, mins, airports, countries, airlines, longest, shortest, first, home, upcoming };
   }
+  const sealColor = cc => INK[hashStr(cc) % INK.length];
+  function seal(cc) { return '<svg class="seal" viewBox="0 0 40 40" style="color:' + sealColor(cc) + '"><circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="20" cy="20" r="14" fill="none" stroke="currentColor" stroke-width=".8" stroke-dasharray="1.5 1.5"/><text x="20" y="24.5" text-anchor="middle" fill="currentColor">' + esc(cc) + "</text></svg>"; }
+  function passportNo() { return "FD" + (hashStr((state.name || "traveller") + (state.flights[0] ? state.flights[0].id : "")) % 9000000 + 1000000); }
+  const SILHOUETTE = '<svg class="sil" viewBox="0 0 100 120" aria-hidden="true"><path d="M50 18c13 0 21 10 21 24 0 15-9 27-21 27S29 57 29 42c0-14 8-24 21-24z"/><path d="M10 120c2-24 18-38 40-38s38 14 40 38z"/></svg>';
+  const EMBLEM = '<svg viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6e3a1"/><stop offset=".45" stop-color="#c79a3e"/><stop offset=".6" stop-color="#f1d98c"/><stop offset="1" stop-color="#9c7428"/></linearGradient></defs><g fill="none" stroke="url(#gold)" stroke-width="2.4"><circle cx="60" cy="60" r="30"/><ellipse cx="60" cy="60" rx="13" ry="30"/><path d="M30 60h60M34 45h52M34 75h52"/>' +
+    '<path d="M28 62c-10-4-18-12-22-24 8 4 15 6 22 6M27 70c-9-1-17-6-22-13 7 2 14 2 21 1M92 62c10-4 18-12 22-24-8 4-15 6-22 6M93 70c9-1 17-6 22-13-7 2-14 2-21 1" stroke-linecap="round"/></g><path fill="url(#gold)" transform="translate(60 22) scale(1.1)" d="' + PLANE_PATH + '"/></svg>';
   function ppPages() {
     const stamps = state.stamps.slice().sort((a, b) => a.at - b.at);
-    const per = 4, n = Math.max(2, Math.ceil(stamps.length / per) + (stamps.length % per === 0 ? 1 : 0));
-    const pages = [{ k: "cover" }, { k: "info" }, { k: "map" }];
+    const per = 5, n = Math.max(2, Math.ceil(stamps.length / per) + (stamps.length % per === 0 ? 1 : 0));
+    const pages = [{ k: "cover" }, { k: "info" }, { k: "record" }, { k: "map" }];
     for (let i = 0; i < n; i++) pages.push({ k: "visa", i, stamps: stamps.slice(i * per, i * per + per) });
     pages.push({ k: "countries" });
     return pages;
   }
   function pageStickers(pg) { return state.ppStickers.map((s, k) => ({ s, k })).filter(x => x.s.pg === pg).map(({ s, k }) => '<span class="stk" data-psk="' + k + '" style="left:' + s.x + "%;top:" + s.y + "%;--r:" + s.r + "deg;--s:" + s.s + '">' + stickerSVG(s.t) + "</span>").join(""); }
-  function worldMapSVG() {
-    if (!WORLD || !window.d3) return '<p class="fine">Map loads once you\'re online.</p>';
-    const p = d3.geoEqualEarth().fitExtent([[6, 6], [294, 168]], { type: "Sphere" }), path = d3.geoPath(p).digits(1);
-    const visited = new Set(); state.stamps.forEach(s => visited.add(ap(s.code).country));
-    let land = WORLD.feats.map(c => '<path class="' + (visited.has(c.n) ? "pm-land on" : "pm-land") + '" d="' + (path(c.f) || "") + '"/>').join("");
+  // fits the map to the places you've flown; the whole world only once your trips are spread out
+  function routesProjection(x0, y0, x1, y1) {
+    const pts = [...new Set(state.flights.flatMap(f => [f.from, f.to]))].map(c => ap(c)).filter(a => !a.unknown);
+    if (pts.length) {
+      const lons = pts.map(a => a.lon), lats = pts.map(a => a.lat);
+      const spanLon = Math.max(...lons) - Math.min(...lons), spanLat = Math.max(...lats) - Math.min(...lats);
+      if (spanLon < 140 && spanLat < 70) {
+        const ring = pts.flatMap(a => [0, 90, 180, 270].map(b => destPoint(a, b, 700))).concat(pts).map(a => [a.lon, a.lat]);
+        const midLon = (Math.max(...lons) + Math.min(...lons)) / 2;
+        return { p: d3.geoMercator().rotate([-midLon, 0]).fitExtent([[x0, y0], [x1, y1]], { type: "Feature", geometry: { type: "MultiPoint", coordinates: ring } }), world: false };
+      }
+    }
+    return { p: d3.geoEqualEarth().fitExtent([[x0, y0], [x1, y1]], { type: "Sphere" }), world: true };
+  }
+  function worldMapSVG(w, h) {
+    if (!WORLD || !window.d3) return '<p class="fine">The map loads once you\'ve opened the app with internet.</p>';
+    const rp = routesProjection(4, 4, w - 4, h - 4), p = rp.p.clipExtent ? rp.p.clipExtent([[0, 0], [w, h]]) : rp.p, path = d3.geoPath(p).digits(1);
+    const visited = new Set(); state.stamps.forEach(s => visited.add(ap(s.code).cc));
+    const ccOf = name => { const hit = state.stamps.find(s => ap(s.code).country === name); return hit ? ap(hit.code).cc : null; };
+    let land = WORLD.feats.map(c => '<path class="' + (ccOf(c.n) ? "pm-land on" : "pm-land") + '" d="' + (path(c.f) || "") + '"/>').join("");
     const now = Date.now();
     const routes = state.flights.map(f => {
       const A = ap(f.from), B = ap(f.to), t = legTimes(f), done = f.torn || (t && t.arr < now);
       return '<path class="pm-route' + (done ? " done" : "") + '" d="' + path({ type: "LineString", coordinates: [[A.lon, A.lat], [B.lon, B.lat]] }) + '"/>';
     }).join("");
     const dots = [...new Set(state.flights.flatMap(f => [f.from, f.to]))].map(c => { const a = ap(c), q = p([a.lon, a.lat]); return q ? '<circle class="pm-dot" cx="' + q[0].toFixed(1) + '" cy="' + q[1].toFixed(1) + '" r="2.2"/>' : ""; }).join("");
-    return '<svg class="pp-map" viewBox="0 0 300 174"><path class="pm-sphere" d="' + path({ type: "Sphere" }) + '"/>' + land + routes + dots + "</svg>";
+    const lbls = rp.world ? "" : [...new Set(state.flights.flatMap(f => [f.from, f.to]))].map(c => { const a = ap(c), q = p([a.lon, a.lat]); return q ? '<text class="pm-lbl" x="' + (q[0] + 4).toFixed(1) + '" y="' + (q[1] - 3).toFixed(1) + '">' + c + "</text>" : ""; }).join("");
+    return '<svg class="pp-map" viewBox="0 0 ' + w + " " + h + '">' + (rp.world ? '<path class="pm-sphere" d="' + path({ type: "Sphere" }) + '"/>' : '<rect class="pm-sphere" width="' + w + '" height="' + h + '"/>') + '<path class="pm-grat" d="' + path(d3.geoGraticule10()) + '"/>' + land + routes + dots + lbls + "</svg>";
   }
-  function pageHTML(pg, idx, total) {
-    const foot = '<div class="pp-foot">' + (idx > 0 ? idx : "") + "</div>";
-    if (pg.k === "cover") return '<div class="pp-sheet cover" data-pg="cover"><div class="cv-top">FLIGHT DECK</div><svg class="cv-globe" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="34"/><ellipse cx="50" cy="50" rx="15" ry="34"/><path d="M16 50h68M22 32h56M22 68h56"/><path class="cv-plane" transform="translate(76 22) rotate(45) scale(1.4)" d="' + PLANE_PATH + '"/></svg><div class="cv-title">PASSPORT</div><div class="cv-sub">' + esc(state.name ? state.name.toUpperCase() : "TRAVELLER") + '</div><div class="cv-hint">Tap to open</div>' + pageStickers("cover") + "</div>";
+  const ppSheet = (cls, pg, inner, idx) => '<div class="pp-sheet ' + cls + '" data-pg="' + pg + '" style="--hue:' + [158, 205, 28, 330, 95, 250][idx % 6] + '"><div class="pp-micro" aria-hidden="true"></div><div class="pp-wm" aria-hidden="true">' + EMBLEM + "</div>" + inner + pageStickers(pg) + '<div class="pp-foot">' + (idx > 0 ? idx : "") + "</div></div>";
+  function pageHTML(pg, idx) {
+    if (pg.k === "cover") return '<div class="pp-sheet cover" data-pg="cover"><div class="cv-frame"></div><div class="cv-top">FLIGHT DECK</div><div class="cv-emblem">' + EMBLEM + '</div><div class="cv-title">PASSPORT</div><div class="cv-sub">' + esc(state.name ? state.name.toUpperCase() : "TRAVEL DOCUMENT") + '</div><svg class="cv-chip" viewBox="0 0 40 26" aria-hidden="true"><rect x="1" y="1" width="38" height="24" rx="3"/><circle cx="20" cy="13" r="6"/><path d="M1 13h13M26 13h13"/></svg>' + pageStickers("cover") + "</div>";
     if (pg.k === "info") {
-      const st = travelStats(), nm = state.name || "", init = (nm.trim().split(/\s+/).map(w => w[0] || "").join("").slice(0, 2) || "✈").toUpperCase();
-      const mrzName = (nm || "TRAVELLER").toUpperCase().replace(/[^A-Z]/g, "<").slice(0, 20);
-      return '<div class="pp-sheet info" data-pg="info"><div class="pp-head">PASSPORT · FLIGHT DECK<span>P</span></div>' +
-        '<div class="id-row"><div class="id-photo"><span>' + esc(init) + '</span></div><div class="id-fields">' +
-        '<label class="id-f"><small>NAME</small><input type="text" id="ppName" value="' + esc(nm) + '" placeholder="Tap to add your name" maxlength="40" autocomplete="off"></label>' +
-        '<div class="id-f"><small>HOME AIRPORT</small><b>' + (st.home ? esc(st.home + " · " + ap(st.home).city) : "—") + "</b></div>" +
-        '<div class="id-f"><small>FLYING SINCE</small><b>' + (st.first ? stampDate(st.first.dep, "UTC") : "Your first flight") + "</b></div></div></div>" +
-        '<div class="id-stats"><div><small>FLIGHTS</small><b>' + st.flights + '</b></div><div><small>KM FLOWN</small><b>' + fmtInt(st.km) + '</b></div><div><small>HOURS IN THE AIR</small><b>' + (st.mins / 60).toFixed(1) + '</b></div>' +
-        '<div><small>COUNTRIES</small><b>' + st.countries.size + '</b></div><div><small>AIRPORTS</small><b>' + st.airports + '</b></div><div><small>LONGEST</small><b>' + (st.longest ? st.longest.f.from + "→" + st.longest.f.to : "—") + "</b></div></div>" +
-        '<div class="mrz">P&lt;FDK' + esc(mrzName) + "&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;<br>FLIGHTDECK&lt;" + pad(st.flights) + "&lt;" + pad(st.countries.size) + "&lt;&lt;NOT&lt;A&lt;REAL&lt;PASSPORT&lt;&lt;</div>" + pageStickers("info") + foot + "</div>";
+      const st = travelStats(), nm = (state.name || "").trim(), parts = nm.split(/\s+/);
+      const surname = parts.length > 1 ? parts[parts.length - 1] : "", given = parts.length > 1 ? parts.slice(0, -1).join(" ") : nm;
+      return ppSheet("info", "info", '<div class="pp-head">PASSPORT · FLIGHT DECK<span>P &nbsp;·&nbsp; ' + passportNo() + "</span></div>" +
+        '<div class="id-row"><div class="id-photo">' + SILHOUETTE + '<span class="holo" aria-hidden="true"></span></div><div class="id-fields">' +
+        '<label class="id-f"><small>NAME</small><input type="text" id="ppName" value="' + esc(nm) + '" placeholder="Tap to add" maxlength="40" autocomplete="off" autocapitalize="words"></label>' +
+        (surname ? '<div class="id-f"><small>SURNAME / GIVEN NAMES</small><b>' + esc(surname.toUpperCase()) + " / " + esc(given.toUpperCase()) + "</b></div>" : "") +
+        '<div class="id-f"><small>HOME AIRPORT</small><b>' + (st.home ? esc(st.home + " · " + ap(st.home).city.toUpperCase()) : "—") + "</b></div>" +
+        '<div class="id-f"><small>DATE OF ISSUE</small><b>' + (st.first ? stampDate(st.first.dep, "UTC") : "—") + '</b></div><div class="id-f"><small>AUTHORITY</small><b>FLIGHT DECK</b></div></div></div>' +
+        '<div class="id-ghost">' + SILHOUETTE + "</div>" +
+        '<div class="id-sign"><span class="sig">' + esc(nm || " ") + '</span><small>HOLDER\'S SIGNATURE</small></div>', idx);
     }
-    if (pg.k === "map") return '<div class="pp-sheet" data-pg="map"><div class="pp-head">ROUTES FLOWN<span>' + state.flights.length + " FLIGHTS</span></div>" + worldMapSVG() + '<p class="fine">Solid lines are flights you\'ve taken, dashed are coming up. Countries you\'ve been stamped in are shaded.</p>' + pageStickers("map") + foot + "</div>";
+    if (pg.k === "record") {
+      const st = travelStats(), yr = new Date().getFullYear(), ys = travelStats(yr);
+      const around = st.km / 40075, moon = st.km / 384400 * 100;
+      const top = [...st.airports.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2);
+      const als = [...st.airlines.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2);
+      const h = Math.floor(st.mins / 60), m = Math.round(st.mins % 60);
+      const body = st.flights ? '<div class="rec-big"><div><b>' + st.flights + '</b><small>FLIGHTS</small></div><div><b>' + fmtInt(st.km) + '</b><small>KILOMETRES</small></div><div><b>' + h + "<i>h</i> " + m + '<i>m</i></b><small>IN THE AIR</small></div></div>' +
+        '<p class="rec-fun">That\'s <b>' + (around >= 0.1 ? around.toFixed(around < 1 ? 2 : 1) + "×" : "a little bit of the way") + "</b> around the Earth" + (moon >= 1 ? ", or " + moon.toFixed(moon < 10 ? 1 : 0) + "% of the way to the Moon" : "") + ".</p>" +
+        '<div class="rec-grid"><div><small>COUNTRIES</small><b>' + st.countries.size + '</b></div><div><small>AIRPORTS</small><b>' + st.airports.size + '</b></div><div><small>AIRLINES</small><b>' + (st.airlines.size || "—") + "</b></div></div>" +
+        '<div class="rec-list"><small>LONGEST FLIGHT</small><p><b>' + st.longest.f.from + " → " + st.longest.f.to + "</b><span>" + fmtInt(st.longest.L) + " km</span></p>" +
+        (st.flights > 1 && Math.abs(st.shortest.L - st.longest.L) > 1 ? "<small>SHORTEST FLIGHT</small><p><b>" + st.shortest.f.from + " → " + st.shortest.f.to + "</b><span>" + fmtInt(st.shortest.L) + " km</span></p>" : "") +
+        "<small>TOP AIRPORTS</small>" + top.map(([c, n]) => "<p><b>" + c + " · " + esc(ap(c).city) + "</b><span>" + n + "×</span></p>").join("") +
+        (als.length ? "<small>AIRLINES</small>" + als.map(([a, n]) => "<p><b>" + esc(a) + "</b><span>" + n + "×</span></p>").join("") : "") + "</div>" +
+        '<p class="rec-year">' + yr + ": " + ys.flights + " flight" + (ys.flights === 1 ? "" : "s") + " · " + fmtInt(ys.km) + " km · " + ys.countries.size + " countr" + (ys.countries.size === 1 ? "y" : "ies") + "</p>"
+        : '<div class="rec-empty"><b>Your record starts with your first landing.</b><p>Every flight you take adds to it: distance, hours in the air, countries, airports and airlines.</p>' + (st.upcoming ? "<p>" + st.upcoming + " flight" + (st.upcoming === 1 ? "" : "s") + " coming up.</p>" : "") + "</div>";
+      return ppSheet("record", "record", '<div class="pp-head">TRAVEL RECORD<span>ALL TIME</span></div>' + body + '<button class="rec-share" id="ppShare">Share my passport</button>', idx);
+    }
+    if (pg.k === "map") return ppSheet("", "map", '<div class="pp-head">ROUTES FLOWN<span>' + state.flights.length + " FLIGHT" + (state.flights.length === 1 ? "" : "S") + "</span></div>" + worldMapSVG(300, 250) +
+      '<p class="fine">Solid lines are flights you\'ve taken, dashed ones are coming up. Countries you\'ve been stamped in are shaded.</p>', idx);
     if (pg.k === "countries") {
       const st = travelStats(), list = [...st.countries.entries()].sort((a, b) => a[1] - b[1]);
-      return '<div class="pp-sheet" data-pg="countries"><div class="pp-head">COUNTRIES<span>' + list.length + "</span></div>" +
-        (list.length ? '<div class="ctry">' + list.map(([cc, at]) => '<div><span class="fl">' + flag(cc) + "</span><b>" + esc(countryName(cc)) + "</b><small>" + stampDate(at, "UTC") + "</small></div>").join("") + "</div>" : '<p class="fine">Countries show up here as you get stamped in.</p>') +
-        pageStickers("countries") + foot + "</div>";
+      return ppSheet("", "countries", '<div class="pp-head">COUNTRIES VISITED<span>' + list.length + "</span></div>" +
+        (list.length ? '<div class="ctry">' + list.map(([cc, at]) => "<div>" + seal(cc) + "<b>" + esc(countryName(cc)) + "</b><small>" + stampDate(at, "UTC") + "</small></div>").join("") + "</div>" : '<p class="fine">Countries appear here as you get stamped in.</p>'), idx);
     }
-    // visa pages
+    // visa pages: stamps land where they land, a little crooked, sometimes overlapping, like the real thing
     const pgKey = "v" + pg.i;
-    let html = '<div class="pp-sheet visa" data-pg="' + pgKey + '"><div class="pp-head">VISAS<span>' + (pg.i + 1) + "</span></div><div class=\"visa-grid\">";
+    const SPOTS = [[27, 24], [73, 30], [30, 55], [70, 62], [42, 84]];
+    let inner = '<div class="pp-head">VISAS<span>' + (pg.i + 1) + "</span></div>";
     pg.stamps.forEach((s, k) => {
-      html += '<div class="st-wrap' + (freshStamps.has(s.id) ? " fresh" : "") + '" style="--r:' + s.r + "deg;--dx:" + s.dx + 'px"><span class="rubber" aria-hidden="true"></span>' + stampArt(s) + "</div>";
+      const rnd = seeded(s.id), sp = SPOTS[k], x = sp[0] + (rnd() * 10 - 5), y = sp[1] + (rnd() * 8 - 4);
+      inner += '<div class="st-wrap' + (freshStamps.has(s.id) ? " fresh" : "") + '" style="left:' + x.toFixed(1) + "%;top:" + y.toFixed(1) + "%;--r:" + s.r + 'deg"><span class="rubber" aria-hidden="true"></span>' + stampArt(s) + "</div>";
     });
-    // the next stamp you can collect, shown on the first page with room
-    const pages = ppPages(), firstRoom = pages.find(p => p.k === "visa" && p.stamps.length < 4);
+    const pages = ppPages(), firstRoom = pages.find(p => p.k === "visa" && p.stamps.length < 5);
     if (firstRoom && firstRoom.i === pg.i) {
       const nx = flightsOrdered().up.find(f => !state.stamps.some(s => s.id === "dep:" + f.id) || !state.stamps.some(s => s.id === "arr:" + f.id));
       if (nx) {
-        const kind = state.stamps.some(s => s.id === "dep:" + nx.id) ? "arr" : "dep", code = kind === "dep" ? nx.from : nx.to;
-        html += '<button class="st-slot" data-stamp="' + kind + ":" + nx.id + '"><span>' + esc(ap(code).city.toUpperCase()) + "</span><small>" + (kind === "dep" ? "Stamps when you tear your stub, or tap" : "Stamps when you land, or tap") + "</small></button>";
+        const kind = state.stamps.some(s => s.id === "dep:" + nx.id) ? "arr" : "dep", code = kind === "dep" ? nx.from : nx.to, sp = SPOTS[pg.stamps.length];
+        inner += '<button class="st-slot" style="left:' + sp[0] + "%;top:" + sp[1] + '%" data-stamp="' + kind + ":" + nx.id + '"><span>' + esc(ap(code).city.toUpperCase()) + "</span><small>" + (kind === "dep" ? "Stamps when you tear your stub" : "Stamps when you land") + " · tap to stamp now</small></button>";
       }
     }
-    return html + "</div>" + pageStickers(pgKey) + foot + "</div>";
+    return ppSheet("visa", pgKey, inner, idx);
   }
-  function renderPassport(dir) {
+  function renderPassport() {
     const pages = ppPages();
     if (ppPage >= pages.length) ppPage = pages.length - 1;
     const book = $("ppBook");
-    book.innerHTML = pageHTML(pages[ppPage], ppPage, pages.length);
+    book.innerHTML = pageHTML(pages[ppPage], ppPage);
+    book.classList.toggle("closed", ppPage === 0);
     $("ppPageNo").textContent = ppPage === 0 ? "COVER" : ppPage + " / " + (pages.length - 1);
     $("ppPrev").disabled = ppPage === 0; $("ppNext").disabled = ppPage === pages.length - 1;
     $("ppCount").textContent = state.stamps.length + " STAMP" + (state.stamps.length === 1 ? "" : "S");
@@ -1686,7 +1737,60 @@
     if (fresh) { setTimeout(stampSound, 330); pages[ppPage].stamps && pages[ppPage].stamps.forEach(s => freshStamps.delete(s.id)); }
     const nm = $("ppName");
     if (nm) nm.addEventListener("change", () => { state.name = nm.value.trim().slice(0, 40); commit({ quiet: true }); renderPassport(); });
+    const sh = $("ppShare"); if (sh) sh.addEventListener("click", sharePassport);
   }
+  // ---------- share card (an image of your passport stats, like Flighty's) ----------
+  async function sharePassport() {
+    const st = travelStats(), W = 1080, H = 1350;
+    try { await document.fonts.ready; } catch (e) {}
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d");
+    const bg = g.createRadialGradient(W * 0.3, H * 0.15, 50, W * 0.5, H * 0.5, H * 0.9); bg.addColorStop(0, "#2e3f6b"); bg.addColorStop(1, "#141d38");
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    const gold = g.createLinearGradient(0, 0, W, H); gold.addColorStop(0, "#f6e3a1"); gold.addColorStop(0.45, "#c79a3e"); gold.addColorStop(0.6, "#f1d98c"); gold.addColorStop(1, "#9c7428");
+    g.strokeStyle = gold; g.lineWidth = 3; g.strokeRect(40, 40, W - 80, H - 80);
+    g.fillStyle = gold; g.textAlign = "center";
+    g.font = "600 34px 'Barlow Condensed', sans-serif"; g.fillText("F L I G H T   D E C K", W / 2, 130);
+    g.font = "700 120px 'Barlow Condensed', sans-serif"; g.fillText("PASSPORT", W / 2, 250);
+    g.font = "600 38px 'Barlow Condensed', sans-serif"; g.fillText((state.name || "TRAVELLER").toUpperCase(), W / 2, 310);
+    // map
+    if (WORLD && window.d3) {
+      const rp = routesProjection(90, 360, W - 90, 800), p = rp.p, path = d3.geoPath(p, g);
+      g.save(); g.beginPath(); g.rect(80, 350, W - 160, 460); g.clip();
+      if (rp.world) { g.beginPath(); path({ type: "Sphere" }); } else { g.beginPath(); g.rect(80, 350, W - 160, 460); }
+      g.fillStyle = "rgba(255,255,255,0.05)"; g.fill();
+      const visited = new Set(state.stamps.map(s => ap(s.code).country));
+      WORLD.feats.forEach(ct => { g.beginPath(); path(ct.f); g.fillStyle = visited.has(ct.n) ? "#d9b867" : "rgba(214,226,255,0.16)"; g.fill(); });
+      g.strokeStyle = "#f6e3a1"; g.lineWidth = 3.5; g.lineCap = "round";
+      state.flights.forEach(f => { const A = ap(f.from), B = ap(f.to); g.beginPath(); path({ type: "LineString", coordinates: [[A.lon, A.lat], [B.lon, B.lat]] }); g.stroke(); });
+      g.fillStyle = "#fff";
+      g.font = "600 26px 'DM Mono', monospace"; g.textAlign = "left";
+      [...new Set(state.flights.flatMap(f => [f.from, f.to]))].forEach(code => { const a = ap(code), q = p([a.lon, a.lat]); if (q) { g.fillStyle = "#fff"; g.beginPath(); g.arc(q[0], q[1], 7, 0, Math.PI * 2); g.fill(); if (!rp.world) { g.fillStyle = "rgba(255,255,255,.85)"; g.fillText(code, q[0] + 12, q[1] - 8); } } });
+      g.restore(); g.textAlign = "center";
+    }
+    // numbers
+    const nums = [[st.flights || state.flights.length, st.flights ? "FLIGHTS" : "FLIGHTS BOOKED"], [fmtInt(st.km || state.flights.reduce((s, f) => s + legLen(f), 0)), st.flights ? "KILOMETRES" : "KM PLANNED"], [st.countries.size, "COUNTRIES"]];
+    nums.forEach(([v, l], k) => {
+      const x = W / 2 + (k - 1) * 320;
+      g.fillStyle = "#fff"; g.font = "700 104px 'Barlow Condensed', sans-serif"; g.fillText(String(v), x, 960);
+      g.fillStyle = gold; g.font = "600 30px 'Barlow Condensed', sans-serif"; g.fillText(l, x, 1005);
+    });
+    g.fillStyle = "rgba(255,255,255,0.75)"; g.font = "500 34px 'Barlow', sans-serif";
+    const around = (st.km || 0) / 40075;
+    g.fillText(st.flights ? "That's " + (around >= 0.1 ? around.toFixed(around < 1 ? 2 : 1) + "× around the Earth" : "just getting started") + "." : "The trip is about to begin.", W / 2, 1110);
+    const top = [...st.countries.keys()].slice(0, 6).map(cc => countryName(cc)).join("  ·  ");
+    g.font = "600 30px 'Barlow Condensed', sans-serif"; g.fillStyle = gold; g.fillText(top.toUpperCase(), W / 2, 1180);
+    g.fillStyle = "rgba(255,255,255,0.4)"; g.font = "500 24px 'DM Mono', monospace"; g.fillText("anishagarwal29.github.io/flight-deck", W / 2, 1265);
+    c.toBlob(async blob => {
+      if (!blob) return;
+      const file = new File([blob], "flight-deck-passport.png", { type: "image/png" });
+      try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: "My Flight Deck passport" }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+      const url = URL.createObjectURL(blob);
+      sheetEl.innerHTML = '<h2>Your passport card</h2><img src="' + url + '" alt="Flight Deck passport card" style="width:100%;border-radius:10px"><p class="note">Press and hold the image to save or share it.</p><div class="actions"><button class="btn primary" id="cancelSheet">Done</button></div>';
+      scrim.classList.add("on"); $("cancelSheet").onclick = closeSheet;
+    }, "image/png");
+  }
+
   function turnPage(delta) {
     const pages = ppPages(), to = Math.max(0, Math.min(pages.length - 1, ppPage + delta));
     if (to === ppPage) { const b = $("ppBook"); b.classList.remove("bump"); void b.offsetWidth; b.classList.add("bump"); return; }
@@ -1821,17 +1925,19 @@
     else $("clkBWrap").style.display = "none";
   }
   function renderAll() { renderPasses(); renderFlight(); renderChecklist(); if (curTab === "passport") renderPassport(); tickClocks(); }
+  // battery: the clock only changes once a minute, and nothing runs while the app is in the background
   tickClocks();
-  setInterval(tickClocks, 1000);
+  setTimeout(() => { tickClocks(); setInterval(tickClocks, 60000); }, 60000 - Date.now() % 60000 + 50);
   setInterval(() => {
-    if (curTab === "flight") { renderGPS(); if (!gps.last || Date.now() - gps.last.t > 5000) renderFlight(); }
+    if (document.hidden) return;
+    if (curTab === "flight") { renderGPS(); renderFlight(); }
     else { const P = currentPos(Date.now()); if (P && P.src !== "preview") checkAnnouncements(P, Date.now()); }
     if (curTab === "passes") { refreshStamps(); autoStamps(); }
-  }, 5000);
+  }, 20000);
 
   renderGPS(); renderChecklist(); renderRupee(); fetchRate();
   $("annOn").checked = state.annOn; $("annVoice").checked = state.annVoice; $("annVoiceRow").style.display = state.annOn ? "" : "none";
-  try { if (localStorage.getItem(LS_GPS) === "1") { gps.on = true; gps.status = "searching"; } } catch (e) {}
+  try { localStorage.removeItem(LS_GPS); } catch (e) {}
   showTab(location.hash.slice(1) || "passes");
   Promise.all([airportsReady, worldReady]).then(() => { VIEW = null; builtKey = ""; renderPasses(); renderFlight(); if (curTab === "passport") renderPassport(); tickClocks(); });
 
