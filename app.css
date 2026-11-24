@@ -568,7 +568,7 @@ nav.tabs button.dot::after { content: ""; position: absolute; top: 6px; right: c
 .pp-sheet .pp-head { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .26em; color: hsl(var(--hue) 22% 38%); font-weight: 700; border-bottom: 1.5px solid hsla(var(--hue), 20%, 40%, .28); padding-bottom: 6px; }
 .pp-sheet .pp-head span { letter-spacing: .12em; font-family: var(--font-data); font-weight: 500; }
 .pp-foot { position: absolute !important; bottom: 9px; left: 0; right: 0; text-align: center; font-family: var(--font-data); font-size: 10px; color: hsl(var(--hue) 15% 48%); }
-.pp-sheet .stk { z-index: 6; }
+.pp-sheet .stk, .pp-sheet > .stk { position: absolute; z-index: 6; width: calc(60px * var(--s, 1)); height: calc(60px * var(--s, 1)); }
 .sticker-mode .pp-sheet .stk { pointer-events: auto; }
 /* cover */
 .pp-sheet.cover { align-items: center; justify-content: center; gap: 12px; cursor: pointer; text-align: center; padding: 30px; border-radius: 6px 16px 16px 6px;
