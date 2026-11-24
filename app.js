@@ -169,7 +169,7 @@
       where: String(m.where || "").slice(0, 40), at: +m.at || Date.now(), hearts: Math.max(0, Math.min(3, +m.hearts || 0)), photo: !!m.photo, x: m.x == null ? null : +m.x, y: m.y == null ? null : +m.y, r: +m.r || 0 }));
     out.ann = s.ann && typeof s.ann === "object" ? s.ann : {};
     out.annOn = s.annOn !== false; out.annVoice = !!s.annVoice;
-    out.inr = s.inr && typeof s.inr === "object" ? { rate: +s.inr.rate || 0, at: +s.inr.at || 0, manual: !!s.inr.manual } : d.inr;
+    out.inr = s.inr && typeof s.inr === "object" && saneRate(+s.inr.rate) && !s.inr.manual ? { rate: +s.inr.rate, at: +s.inr.at || 0, manual: false } : d.inr;
     out.checklist = Array.isArray(s.checklist) ? s.checklist.filter(c => c && c.id).map(c => ({ id: String(c.id), sec: String(c.sec == null ? "" : c.sec), label: String(c.label || ""), done: !!c.done })) : d.checklist;
     return out;
   }
@@ -1481,12 +1481,15 @@
   // ================= RUPEE CHECKER =================
   function fmtMoney(n, cur) { return (cur === "INR" ? "₹" : "S$") + (n >= 100 ? Math.round(n).toLocaleString("en-IN") : n.toFixed(2)); }
   let inrDir = "INR";
+  // S$1 has been ₹45–₹90 for decades; anything outside ₹40–₹120 is a mistake, never shown
+  function saneRate(r) { return r > 0 && 1 / r >= 40 && 1 / r <= 120; }
   function agoWords(ms) {
     const m = Math.round(ms / 60000);
     return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + (m < 2880 ? " day ago" : " days ago");
   }
   let rateBusy = false, rateFail = false;
   function renderRupee() {
+    if (state.inr.rate && !saneRate(state.inr.rate)) state.inr = { rate: 0, at: 0, manual: false };
     const rate = state.inr.rate;                // SGD for 1 INR
     const v = parseFloat(($("inrIn").value || "").replace(/,/g, ""));
     $("inrCur").textContent = inrDir === "INR" ? "₹" : "S$";
@@ -1494,13 +1497,11 @@
     const refresh = '<button class="linkbtn" id="inrRefresh">' + (rateBusy ? "updating…" : "↻ update") + "</button>";
     if (!rate) {
       $("inrOut").textContent = "—";
-      $("inrNote").innerHTML = (rateBusy ? "Getting today's rate…" : rateFail ? "Couldn't get the rate (offline?). " + refresh + " or " : "") + (rateBusy ? "" : '<button class="linkbtn" id="inrSet">set it yourself</button>');
+      $("inrNote").innerHTML = rateBusy ? "Getting today's rate…" : "No rate yet. Connect to the internet once and it saves for offline. " + refresh;
     } else {
       $("inrOut").textContent = isNaN(v) ? (inrDir === "INR" ? "S$0" : "₹0") : (inrDir === "INR" ? fmtMoney(v * rate, "SGD") : fmtMoney(v / rate, "INR"));
       const head = "<b>S$1 = ₹" + (1 / rate).toFixed(2) + "</b> · ";
-      $("inrNote").innerHTML = state.inr.manual
-        ? head + 'your own rate · <button class="linkbtn" id="inrLive">use the live rate</button>'
-        : head + (rateFail && !rateBusy ? "offline, last updated " : "market rate, updated ") + agoWords(Date.now() - state.inr.at) + " · " + refresh + ' · <button class="linkbtn" id="inrSet">set my own</button>' +
+      $("inrNote").innerHTML = head + (rateFail && !rateBusy ? "offline, last updated " : "live market rate, updated ") + agoWords(Date.now() - state.inr.at) + " · " + refresh +
           '<br><span class="fine">Money changers and cards give a little less than this.</span>';
     }
     $("inrQuick").innerHTML = rate ? (inrDir === "INR" ? [100, 500, 1000, 5000].map(n => "<div><b>₹" + n.toLocaleString("en-IN") + "</b><span>" + fmtMoney(n * rate, "SGD") + "</span></div>")
@@ -1514,7 +1515,7 @@
     ["https://api.frankfurter.dev/v1/latest?base=SGD&symbols=INR", d => d.rates && d.rates.INR]
   ];
   async function fetchRate(force) {
-    if (rateBusy || (state.inr.manual && state.inr.rate && !force)) return;
+    if (rateBusy) return;
     if (!force && state.inr.at && Date.now() - state.inr.at < 30 * 60000) return;
     if (!navigator.onLine && !force) { rateFail = true; renderRupee(); return; }
     rateBusy = true; renderRupee();
@@ -1524,7 +1525,7 @@
         const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 7000);
         const r = await fetch(url, { cache: "no-store", signal: ctl.signal }); clearTimeout(to);
         const n = +pick(await r.json());
-        if (n > 20 && n < 200) { got = n; break; }      // sanity check: S$1 is somewhere around ₹60–75
+        if (n >= 40 && n <= 120) { got = n; break; }      // sanity check: S$1 is somewhere around ₹70
       } catch (e) {}
     }
     rateBusy = false; rateFail = !got;
@@ -1538,12 +1539,6 @@
   $("inrSwap").addEventListener("click", () => { inrDir = inrDir === "INR" ? "SGD" : "INR"; renderRupee(); });
   $("rupee").addEventListener("click", e => {
     if (e.target.id === "inrRefresh") { fetchRate(true); return; }
-    if (e.target.id === "inrLive") { state.inr.manual = false; state.inr.at = 0; commit({ quiet: true }); fetchRate(true); return; }
-    if (e.target.id !== "inrSet") return;
-    const cur = state.inr.rate ? (1 / state.inr.rate).toFixed(1) : "";
-    $("inrNote").innerHTML = '<span style="display:flex;gap:8px;align-items:center">₹ per S$1 <input type="number" id="inrRate" inputmode="decimal" value="' + cur + '" style="width:90px;padding:6px"><button class="btn sm" id="inrOk">Save</button></span>';
-    $("inrRate").focus();
-    $("inrOk").onclick = () => { const v = parseFloat($("inrRate").value); if (v > 0) { state.inr = { rate: 1 / v, at: Date.now(), manual: true }; commit({ quiet: true }); } renderRupee(); };
   });
 
   // ================= CAPTAIN ANNOUNCEMENTS =================
