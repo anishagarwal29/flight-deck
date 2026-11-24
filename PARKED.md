@@ -14,3 +14,4 @@ These are the changes still to make to it:
    - tap the circle to tick
    - swipe left to delete
    - no categories, just dividers you can name
+7. **Captain announcements:** remove the "read them out loud" voice option. Text banners only.

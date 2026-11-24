@@ -251,3 +251,15 @@ body.focused #dock { opacity: 0; transform: translate(-50%, 30px); pointer-event
   #dock { bottom: 12px; } #dock button { min-width: 0; padding: 9px 8px 7px; } #dock span { font-size: 8.5px; letter-spacing: .08em; }
   .h-clocks div:first-child { display: none; } #hud { padding: 12px 14px; }
 }
+
+/* sample trip */
+.b-demo { margin-top: 18px; color: var(--gold); font: 600 11px Sora; letter-spacing: .16em; text-transform: uppercase; padding: 10px 16px; border-radius: 999px; border: 1px solid rgba(226, 189, 120, .35); transition: background .2s; }
+.b-demo:hover { background: rgba(226, 189, 120, .1); }
+.b-demo-note { margin-top: 16px; color: var(--mute); font-size: 12px; }
+.h-demo { display: none; align-items: center; gap: 4px; padding: 4px 4px 4px 14px; border-radius: 999px; background: rgba(226, 189, 120, .14); border: 1px solid rgba(226, 189, 120, .35); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+body.demo .h-demo { display: flex; }
+.h-demo span { font: 600 10px Sora; letter-spacing: .2em; text-transform: uppercase; color: var(--gold); margin-right: 6px; }
+.h-demo button { font: 600 10px Sora; letter-spacing: .16em; text-transform: uppercase; padding: 7px 11px; border-radius: 999px; color: var(--ink); }
+.h-demo button:hover { background: rgba(255, 240, 220, .1); }
+body.focused #ann { left: calc((100% - min(460px, 42vw) - 52px) / 2); width: min(520px, 46vw); }
+@media (max-width: 760px) { body.focused #ann { left: 50%; width: 90vw; } }

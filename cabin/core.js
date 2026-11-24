@@ -55,34 +55,6 @@ export function searchAirports(q) {
   return out.sort((a, b) => score(a) - score(b)).slice(0, 6);
 }
 
-// ---------- saved state (shared with the classic app) ----------
-const code3 = s => /^[A-Za-z]{3}$/.test(String(s || "")) ? String(s).toUpperCase() : "";
-function defaultChecklist() {
-  const S = { "DOCUMENTS": ["Passport (6+ months valid)", "Visa sorted if you need one", "Boarding passes", "Address of where you're staying"],
-    "TECH": ["Phone", "Charger + cable", "Plug adapter", "Earphones"], "CLOTHES": ["Tops", "Pants", "Underwear + socks", "Jacket"], "TOILETRIES": ["Toothbrush + toothpaste", "Deodorant", "Any meds you take"] };
-  const out = []; for (const sec in S) for (const label of S[sec]) out.push({ id: uid(), sec, label, done: false }); return out;
-}
-export function defaults() { return { v: 3, updatedAt: 0, name: "", flights: [], stamps: [], ppStickers: [], ann: {}, annOn: true, annVoice: false, inr: { rate: 0, at: 0, manual: false }, checklist: defaultChecklist() }; }
-export function sanitize(s) {
-  const d = defaults();
-  if (!s || typeof s !== "object") return d;
-  const out = Object.assign({}, d, s);
-  out.flights = (Array.isArray(s.flights) ? s.flights : []).filter(g => g && g.id && code3(g.from) && code3(g.to)).map(g => Object.assign({ no: "", dep: "", arr: "", dur: 0, seat: "", gate: "", torn: false, tornAt: 0, tear: null, stickers: [] }, g, { from: code3(g.from), to: code3(g.to), dur: +g.dur > 0 ? Math.max(10, +g.dur) : 0 }));
-  out.stamps = (Array.isArray(s.stamps) ? s.stamps : []).filter(x => x && x.id && x.code);
-  out.checklist = Array.isArray(s.checklist) ? s.checklist.filter(c => c && c.id) : d.checklist;
-  out.ann = s.ann && typeof s.ann === "object" ? s.ann : {};
-  out.annOn = s.annOn !== false;
-  return out;
-}
-export const store = { state: defaults(), listeners: [] };
-try { const raw = localStorage.getItem(LS_KEY); if (raw) store.state = sanitize(JSON.parse(raw)); } catch (e) {}
-export function save() {
-  store.state.updatedAt = Date.now();
-  try { localStorage.setItem(LS_KEY, JSON.stringify(store.state)); } catch (e) {}
-  store.listeners.forEach(f => f());
-}
-window.addEventListener("storage", e => { if (e.key === LS_KEY && e.newValue) { try { store.state = sanitize(JSON.parse(e.newValue)); store.listeners.forEach(f => f()); } catch (err) {} } });
-
 // ---------- time zones ----------
 const fmtCache = {};
 export function tzOff(ms, tz) {
@@ -107,6 +79,55 @@ export const dayKey = (utc, tz) => { const d = zoned(utc, tz); return DAYS[d.get
 export const dateStr = (utc, tz) => { const d = zoned(utc, tz); return pad(d.getUTCDate()) + " " + MONS[d.getUTCMonth()] + " " + d.getUTCFullYear(); };
 export const durWords = min => { min = Math.round(min); const h = Math.floor(min / 60), m = min % 60; return (h ? h + "h " : "") + pad(m) + "m"; };
 export const durClock = min => { min = Math.max(0, Math.round(min)); return Math.floor(min / 60) + ":" + pad(min % 60); };
+
+// ---------- saved state (shared with the classic app) ----------
+const code3 = s => /^[A-Za-z]{3}$/.test(String(s || "")) ? String(s).toUpperCase() : "";
+function defaultChecklist() {
+  const S = { "DOCUMENTS": ["Passport (6+ months valid)", "Visa sorted if you need one", "Boarding passes", "Address of where you're staying"],
+    "TECH": ["Phone", "Charger + cable", "Plug adapter", "Earphones"], "CLOTHES": ["Tops", "Pants", "Underwear + socks", "Jacket"], "TOILETRIES": ["Toothbrush + toothpaste", "Deodorant", "Any meds you take"] };
+  const out = []; for (const sec in S) for (const label of S[sec]) out.push({ id: uid(), sec, label, done: false }); return out;
+}
+export function defaults() { return { v: 3, updatedAt: 0, name: "", flights: [], stamps: [], ppStickers: [], ann: {}, annOn: true, annVoice: false, inr: { rate: 0, at: 0, manual: false }, checklist: defaultChecklist() }; }
+export function sanitize(s) {
+  const d = defaults();
+  if (!s || typeof s !== "object") return d;
+  const out = Object.assign({}, d, s);
+  out.flights = (Array.isArray(s.flights) ? s.flights : []).filter(g => g && g.id && code3(g.from) && code3(g.to)).map(g => Object.assign({ no: "", dep: "", arr: "", dur: 0, seat: "", gate: "", torn: false, tornAt: 0, tear: null, stickers: [] }, g, { from: code3(g.from), to: code3(g.to), dur: +g.dur > 0 ? Math.max(10, +g.dur) : 0 }));
+  out.stamps = (Array.isArray(s.stamps) ? s.stamps : []).filter(x => x && x.id && x.code);
+  out.checklist = Array.isArray(s.checklist) ? s.checklist.filter(c => c && c.id) : d.checklist;
+  out.ann = s.ann && typeof s.ann === "object" ? s.ann : {};
+  out.annOn = s.annOn !== false;
+  return out;
+}
+// ---------- sample trip (for trying everything out; never touches your real data) ----------
+export const DEMO = /[?&]demo\b/.test(location.search);
+const DEMO_KEY = "flightdeck.demo";
+function localStr(ms, tz) { const d = new Date(ms + tzOff(ms, tz) * 60000); return d.toISOString().slice(0, 16); }
+function demoState() {
+  const now = Date.now(), H = 3600000, D = 24 * H, s = defaults();
+  const f = (id, from, to, no, depMs, durMin, seat, gate, torn, fromTz, toTz) => ({ id, from, to, no, dep: localStr(depMs, fromTz), arr: localStr(depMs + durMin * 60000, toTz), dur: durMin, seat, gate, torn, tornAt: torn ? depMs - 20 * 60000 : 0, tear: null, stickers: [], added: now });
+  s.name = "Anish";
+  s.flights = [
+    f("d1", "SIN", "CCU", "6E 1052", now - 1.6 * H, 245, "2A", "C24", true, "Asia/Singapore", "Asia/Kolkata"),
+    f("d2", "CCU", "PAT", "6E 721", now + 5 * H, 70, "3A", "14", false, "Asia/Kolkata", "Asia/Kolkata"),
+    f("d3", "PAT", "CCU", "6E 6512", now + 7 * D, 75, "4F", "", false, "Asia/Kolkata", "Asia/Kolkata"),
+    f("d4", "CCU", "SIN", "SQ 517", now + 7 * D + 4 * H, 250, "11K", "", false, "Asia/Kolkata", "Asia/Singapore"),
+    f("p1", "SIN", "BKK", "SQ 708", now - 120 * D, 145, "34A", "B5", true, "Asia/Singapore", "Asia/Bangkok"),
+    f("p2", "BKK", "HKT", "TG 201", now - 116 * D, 85, "12C", "", true, "Asia/Bangkok", "Asia/Bangkok"),
+    f("p3", "HKT", "SIN", "TR 641", now - 111 * D, 125, "20F", "", true, "Asia/Bangkok", "Asia/Singapore")
+  ];
+  s.checklist = [["DOCUMENTS", "Passport", true], ["DOCUMENTS", "Boarding passes", true], ["DOCUMENTS", "Address in Patna", false], ["TECH", "Phone charger", true], ["TECH", "Plug adapter", false], ["TECH", "Earphones", false], ["CLOTHES", "Tops", true], ["CLOTHES", "Jacket", false], ["FOR NANI", "Gift from Singapore", false]].map(([sec, label, done]) => ({ id: uid(), sec, label, done }));
+  return s;
+}
+export const store = { state: defaults(), listeners: [] };
+if (DEMO) store.state = sanitize(demoState());
+else try { const raw = localStorage.getItem(LS_KEY); if (raw) store.state = sanitize(JSON.parse(raw)); } catch (e) {}
+export function save() {
+  store.state.updatedAt = Date.now();
+  try { localStorage.setItem(DEMO ? DEMO_KEY : LS_KEY, JSON.stringify(store.state)); } catch (e) {}
+  store.listeners.forEach(f => f());
+}
+window.addEventListener("storage", e => { if (!DEMO && e.key === LS_KEY && e.newValue) { try { store.state = sanitize(JSON.parse(e.newValue)); store.listeners.forEach(f => f()); } catch (err) {} } });
 
 // ---------- geography ----------
 const R = 6371;

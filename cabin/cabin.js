@@ -311,11 +311,10 @@ function updateSky(P) {
 
 // ---------- announcements ----------
 let annQ = [], annBusy = false;
-function speak(text) { if (!st().annVoice || !("speechSynthesis" in window)) return; try { const u = new SpeechSynthesisUtterance(text); u.rate = 0.95; u.pitch = 0.9; speechSynthesis.speak(u); } catch (e) {} }
 function showAnn(text) { annQ.push(text); if (!annBusy) nextAnn(); }
 function nextAnn() {
   const text = annQ.shift(); if (!text) { annBusy = false; return; } annBusy = true;
-  sfx.chime(); $("#annT").textContent = text; $("#ann").classList.add("on"); speak(text);
+  sfx.chime(); $("#annT").textContent = text; $("#ann").classList.add("on");
   anim.callRingPulse = performance.now();
   setTimeout(() => { $("#ann").classList.remove("on"); setTimeout(nextAnn, 700); }, Math.max(6000, text.length * 70));
 }
@@ -618,7 +617,6 @@ PANELS.call = () => {
   const ALL = [["board", "Welcome aboard", "When the flight starts"], ["cruise", "Cruising altitude", "A few minutes in"], ["over", "Countries below", "Each time you cross into a new one"], ["half", "Halfway there", "With the time left"], ["descent", "Starting descent", "About 30 minutes out, with local time"], ["landed", "Welcome to the city", "Once you land"]];
   panel("CALL BUTTON", "The captain", `
     <div class="toggle"><div class="t"><b>Announcements</b><span>Little updates from the flight deck during the flight</span></div><button class="sw ${s.annOn ? "on" : ""}" data-sw="annOn"></button></div>
-    <div class="toggle"><div class="t"><b>Read them out loud</b><span>Uses your device's voice. Earphones in.</span></div><button class="sw ${s.annVoice ? "on" : ""}" data-sw="annVoice"></button></div>
     <div class="sep" style="margin:8px 0 14px"></div>
     <span class="lbl">What you'll hear${f ? " on " + f.from + " – " + f.to : ""}</span>
     <div class="ann-list">${ALL.map(([k, t, d]) => `<div style="${heard.some(h => h === k || (k === "over" && h.startsWith("over:"))) ? "opacity:.45" : ""}"><b>${t}</b>${d}</div>`).join("")}</div>
@@ -690,7 +688,13 @@ C.store.listeners.push(() => { refreshPassCards(); tickHUD(); mapCache = null; t
 
 // ---------- boarding ----------
 const fontsReady = Promise.all([Promise.race([document.fonts ? document.fonts.ready : Promise.resolve(), new Promise(r => setTimeout(r, 1500))]), Promise.all(LOADING)]);
-function boardInfo() { const f = C.flightsOrdered().up[0]; if (!f) return; $("#bRoute").textContent = C.ap(f.from).city + "  —  " + C.ap(f.to).city; const t = C.legTimes(f); $("#bSub").textContent = (f.seat ? "Seat " + f.seat : "Suite 1A") + (t ? " · " + C.dayKey(t.dep, C.ap(f.from).tz) : ""); }
+if (C.DEMO) { document.body.classList.add("demo"); }
+$("#demoBtn").onclick = () => { location.href = "./?demo"; };
+$("#demoExit").onclick = () => { location.href = "./"; };
+$("#demoReset").onclick = () => { location.reload(); };
+function boardInfo() {
+  $("#demoBtn").style.display = !C.DEMO && !st().flights.length ? "" : "none";
+  $("#bDemoNote").style.display = C.DEMO ? "" : "none"; const f = C.flightsOrdered().up[0]; if (!f) return; $("#bRoute").textContent = C.ap(f.from).city + "  —  " + C.ap(f.to).city; const t = C.legTimes(f); $("#bSub").textContent = (f.seat ? "Seat " + f.seat : "Suite 1A") + (t ? " · " + C.dayKey(t.dep, C.ap(f.from).tz) : ""); }
 boardInfo(); $("#boardBtn").disabled = true;
 fontsReady.then(() => {
   anim.ppCoverMat.map = coverTex(st().name); anim.ppCoverMat.needsUpdate = true;
