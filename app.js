@@ -1033,16 +1033,20 @@
     countries.slice(0, 9).forEach(([n, x, y]) => { if (far(x, y, 50)) { lbl += '<text class="lbl-country" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle">' + esc(n.toUpperCase()) + "</text>"; placed.push([x, y]); } });
     let cities = "";
     if (AIR) {
-      const cand = [];
+      // towns along the way: big (international) airports first; short hops also get the smaller towns
+      const cand = [], seen = new Set([A.city, B.city]);
       for (const r of AIR.rows) {
-        if (r[0] === A.code || r[0] === B.code || !/international/i.test(r[1])) continue;
+        if (r[0] === A.code || r[0] === B.code) continue;
+        const big = /international/i.test(r[1]);
+        if (!big && L > 1500) continue;
         const c = { lat: r[4], lon: r[5] };
         const det = dist(A, c) + dist(c, B) - L; if (det > Math.max(260, L * 0.12)) continue;
-        cand.push([r[2] || r[1], c, det]);
+        cand.push([r[2] || r[1], c, det + (big ? 0 : 120)]);
       }
       cand.sort((a, b) => a[2] - b[2]);
+      const uniq = cand.filter(([n]) => !seen.has(n) && seen.add(n));
       let n = 0;
-      for (const [name, c] of cand) {
+      for (const [name, c] of uniq) {
         if (n >= 7) break;
         const q = p([c.lon, c.lat]); if (!q || q[0] < 20 || q[0] > 380 || q[1] < 50 || q[1] > 410) continue;
         if (!far(q[0], q[1], 46)) continue;
@@ -1055,7 +1059,8 @@
       const right = !o || q[0] >= o[0];
       return '<circle class="ap-dot" cx="' + q[0].toFixed(1) + '" cy="' + q[1].toFixed(1) + '" r="3.4"/><text class="ap-lbl" x="' + (q[0] + (right ? 8 : -8)).toFixed(1) + '" y="' + (q[1] + 4).toFixed(1) + '" text-anchor="' + (right ? "start" : "end") + '">' + a.code + "</text>";
     };
-    VIEW = { key, p, f, lands, lbl, cities, aps: apMark(A, B) + apMark(B, A) };
+    const inTopLeft = q => q && q[0] < 190 && q[1] < 110;
+    VIEW = { key, p, f, lands, lbl, cities, aps: apMark(A, B) + apMark(B, A), tagRight: inTopLeft(p([A.lon, A.lat])) || inTopLeft(p([B.lon, B.lat])) };
     return VIEW;
   }
   function proj(lon, lat) { const q = VIEW && VIEW.p([lon, lat]); return q || [-50, -50]; }
@@ -1113,7 +1118,7 @@
     movePlane(px, py, screenHeading(P));
     const tag = $("modeTag");
     const onGround = P.src === "gps" && (P.spd || 0) < 15;
-    tag.className = "mode-tag " + (P.src === "gps" ? "gps" : P.src === "est" ? "est" : "");
+    tag.className = "mode-tag " + (P.src === "gps" ? "gps" : P.src === "est" ? "est" : "") + (VIEW && VIEW.tagRight ? " right" : "");
     tag.textContent = P.src === "gps" ? (onGround ? "GPS · ON THE GROUND" : "GPS FIX") : P.src === "est" ? (gps.calib && gps.calib.leg === f.id ? "ESTIMATE · GPS-CORRECTED" : "ESTIMATE") : P.src === "landed" ? "LANDED" : "PREVIEW";
     let overLbl, overTxt;
     if (P.src === "gps") { overLbl = onGround ? "YOU'RE IN" : "NOW FLYING OVER"; overTxt = cap(whereLabel(P.lat, P.lon)); }
@@ -2037,6 +2042,23 @@
     ppNewDot = false; updateTabDot(); renderPassport();
   }
 
+
+  // ================= OPENED IN SAFARI INSTEAD OF AS THE APP =================
+  // iOS 26 adds Home Screen icons as plain Safari bookmarks if "Open as Web App" was switched off.
+  (function safariHint() {
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const app = navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+    let off = false; try { off = localStorage.getItem("flightdeck.hint-app") === "off"; } catch (e) {}
+    if (!ios || app || off) return;
+    const card = document.createElement("div");
+    card.className = "card app-hint";
+    card.innerHTML = '<div><b>Open it as an app</b><p class="note">You\'re in Safari right now, so the address bar stays on screen. ' +
+      'Delete the Flight Deck icon, then here tap <b>Share → Add to Home Screen</b> and keep <b>Open as Web App</b> switched on. ' +
+      'The app keeps its own copy of your passes, so add them again there (scanning is quickest).</p></div>' +
+      '<button class="linkbtn" id="hintOff" aria-label="Hide this">Hide</button>';
+    $("v-passes").insertBefore(card, $("v-passes").firstChild);
+    $("hintOff").onclick = () => { card.remove(); try { localStorage.setItem("flightdeck.hint-app", "off"); } catch (e) {} };
+  })();
 
   // ================= SCAN A BOARDING PASS =================
   // Every boarding pass barcode (paper, airline app, or a screenshot) holds the IATA "BCBP" data:

@@ -896,3 +896,8 @@ input.needtime { border-color: var(--late) !important; box-shadow: 0 0 0 3px rgb
 /* ---------- no double-tap zoom: taps are instant, pinch-zoom still works ---------- */
 html, body { touch-action: manipulation; }
 button, .btn, .chip, .tab, nav, label.switch, .linkbtn { -webkit-user-select: none; user-select: none; }
+.mode-tag.right { left: auto; right: 10px; transform: rotate(3deg); }
+.app-hint { flex-direction: row; align-items: flex-start; gap: 10px; border: 1.5px dashed var(--red); }
+.app-hint b { font-family: var(--font-display); font-size: 18px; }
+.app-hint p b { font-family: var(--font-ui); font-size: inherit; }
+.app-hint p { margin-top: 4px; }
