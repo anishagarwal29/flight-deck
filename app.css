@@ -27,7 +27,10 @@
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
-body { background: var(--paper); color: var(--ink); font-family: var(--font-ui); font-size: 16px; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font-ui); font-size: 16px; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, select { -webkit-user-select: text; user-select: text; }
+img, svg { -webkit-user-drag: none; }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
@@ -473,3 +476,15 @@ main { padding-bottom: calc(env(safe-area-inset-bottom) + 100px) !important; }
 .ife-foot { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-family: var(--font-ui); font-size: 11px; letter-spacing: .14em; color: rgba(200, 225, 255, .6); }
 .ife-dots i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .25); margin: 0 3px; transition: background .3s; }
 .ife-dots i.on { background: #7fd0ff; }
+
+/* small window icon on each side of "Out your window" */
+.wicon { display: inline-block; width: 13px; height: 17px; border-radius: 45% / 40%; margin-right: 6px; vertical-align: -3px;
+  box-shadow: 0 0 0 2px #e2dbcc, 0 0 0 3px #c6bdab; background: linear-gradient(#2c72c8, #9fcdf2); }
+[data-sky="golden"] .wicon { background: linear-gradient(#4c79bd, #f0b46a); }
+[data-sky="dusk"] .wicon { background: linear-gradient(#1b2256, #ef8750); }
+[data-sky="night"] .wicon { background: radial-gradient(1px 1px at 30% 30%, #fff, transparent), radial-gradient(1px 1px at 65% 55%, #fff, transparent), linear-gradient(#03061a, #1a2350); }
+.side-col.mine .wicon { box-shadow: 0 0 0 2px #fff, 0 0 0 3px var(--red); }
+.side-col h4 { justify-content: flex-start !important; }
+.side-col h4 span { margin-left: auto; }
+.sunline { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.sunline b { color: var(--ink); }

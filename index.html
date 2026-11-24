@@ -59,7 +59,6 @@
       </div>
 
       <div class="toolbar fx-btns">
-        <button class="btn fx" id="openWindow"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M6 9h12"/></svg>Window seat</button>
         <button class="btn fx" id="openIFE"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Seatback screen</button>
       </div>
       <div class="legs" id="legChips"></div>
@@ -90,8 +89,8 @@
 
       <div class="card">
         <div class="card-h"><h3>OUT YOUR WINDOW</h3></div>
-        <div class="sunrow"><div class="porthole day" id="porthole" aria-hidden="true"><span class="sky"></span><span class="cloud c1"></span><span class="cloud c2"></span><span class="stars"></span></div><p id="sunLine"></p></div>
-        <div class="window-sides" id="windowSides"></div>
+        <div class="window-sides" id="windowSides" data-sky="day"></div>
+        <p class="sunline" id="sunLine"></p>
         <div class="ahead" id="ahead"></div>
         <p class="note" id="seatHint"></p>
       </div>
@@ -125,28 +124,6 @@
 <div class="tray" id="tray" aria-label="Sticker sheet">
   <div class="tray-h"><span>Drag a sticker onto a pass · drag one off to peel it</span><button class="btn sm primary" id="trayDone">Done</button></div>
   <div class="tray-row" id="trayRow"></div>
-</div>
-
-<!-- window seat -->
-<div class="overlay win" id="win" role="dialog" aria-modal="true" aria-label="Window seat">
-  <button class="ov-close" id="winClose" aria-label="Close">×</button>
-  <div class="win-top"><span class="kicker" id="winSrc">PREVIEW</span><div class="seg"><button id="winSideL" aria-pressed="true">Left window</button><button id="winSideR" aria-pressed="false">Right window</button></div></div>
-  <div class="win-bezel">
-    <div class="win-pane day sea side-left" id="winPane">
-      <span class="w-sky"></span><span class="w-stars"></span><span class="win-sun" id="winSun"></span>
-      <span class="w-ground"></span><span class="w-lights"></span>
-      <span class="w-cloud k1"></span><span class="w-cloud k2"></span><span class="w-cloud k3"></span>
-      <svg class="w-wing" viewBox="0 0 200 80" aria-hidden="true"><path d="M0 80 L200 40 L200 52 L30 80 Z"/><path class="tip" d="M186 43 L200 20 L200 40 Z"/><circle class="nav" cx="197" cy="44" r="2.4"/></svg>
-      <div class="win-shade" id="winShade"><span class="lip"></span></div>
-    </div>
-  </div>
-  <p class="win-hint">Drag the window to pull the shade up or down</p>
-  <div class="win-info">
-    <small>RIGHT NOW YOU'RE OVER</small>
-    <b id="winOver">…</b>
-    <ul id="winList"></ul>
-    <p class="note" id="winNote"></p>
-  </div>
 </div>
 
 <!-- seatback screen -->

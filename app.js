@@ -835,7 +835,7 @@
   function renderPorthole(P, when) {
     const s = sunPos(when, P.lat, P.lon);
     const sky = s.elev < -8 ? "night" : s.elev < 0 ? "dusk" : s.elev < 10 ? "golden" : "day";
-    $("porthole").className = "porthole " + sky;
+    $("windowSides").dataset.sky = sky;
     const rel = ((s.az - (P.hdg || 0) + 540) % 360) - 180;
     const where = rel <= -25 && rel >= -155 ? "on your <b>left</b>" : rel >= 25 && rel <= 155 ? "on your <b>right</b>" : Math.abs(rel) < 25 ? "<b>ahead</b> of the plane" : "<b>behind</b> the plane";
     let txt;
@@ -871,7 +871,7 @@
     const list = arr => arr.length ? arr.slice(0, 3).map(x => '<div class="poi"><b>' + esc(x.n) + "</b><span>" + fmtInt(x.d) + " km away</span></div>").join("")
       : '<div class="poi none"><b>' + (sea ? "Open sea" : "Nothing big nearby") + "</b></div>";
     const key = left.slice(0, 3).map(x => x.n).join() + "|" + right.slice(0, 3).map(x => x.n).join() + "|" + side;
-    const col = (name, arr, mine) => '<div class="side-col' + (mine ? " mine" : "") + '"><h4>' + name + (mine ? "<span>YOUR WINDOW</span>" : "") + "</h4>" + list(arr) + "</div>";
+    const col = (name, arr, mine) => '<div class="side-col' + (mine ? " mine" : "") + '"><h4><i class="wicon" aria-hidden="true"></i>' + name + (mine ? "<span>YOUR SIDE</span>" : "") + "</h4>" + list(arr) + "</div>";
     if (key !== lastWindowKey) {
       $("windowSides").innerHTML = col("LEFT", left, side === "left") + col("RIGHT", right, side === "right");
       lastWindowKey = key;
@@ -1228,107 +1228,6 @@
     audio(); addStamp(b.dataset.stamp); renderPassport();
   });
 
-  // ================= WINDOW SEAT VIEW =================
-  let winSide = null, shade = 0.18, winTimer = null, SH = null;
-  function openWindow() {
-    const P = currentPos(Date.now());
-    const s = seatSide(P.leg.seat);
-    if (!winSide) winSide = s === "right" ? "right" : "left";
-    $("win").classList.add("on");
-    document.body.classList.add("overlay-open");
-    audio();
-    renderWindowView();
-    clearInterval(winTimer); winTimer = setInterval(renderWindowView, 15000);
-    if (curTab === "flight") resumeGPS();
-  }
-  function closeWindow() { $("win").classList.remove("on"); document.body.classList.remove("overlay-open"); clearInterval(winTimer); }
-  function renderWindowView() {
-    const now = Date.now(), P = currentPos(now), t = legTimes(P.leg);
-    const when = P.src === "preview" && t ? t.dep + P.prog * P.leg.dur * 60000 : now;
-    const sun = sunPos(when, P.lat, P.lon);
-    const sky = sun.elev < -8 ? "night" : sun.elev < 0 ? "dusk" : sun.elev < 10 ? "golden" : "day";
-    const over = whereLabel(P.lat, P.lon);
-    const sea = /the (Bay|Andaman|Strait|Gulf|Indian|Singapore)/.test(over);
-    const pane = $("winPane");
-    pane.className = "win-pane " + sky + (sea ? " sea" : " land") + " side-" + winSide + (P.src === "gps" && (P.spd || 0) < 15 ? " ground" : "");
-    // is the sun on this side of the plane, and how high?
-    const rel = ((sun.az - (P.hdg || 0) + 540) % 360) - 180;
-    const sideRel = winSide === "left" ? -rel : rel;          // 90 = straight out of this window
-    const sunEl = $("winSun");
-    if (sun.elev > -4 && sideRel > 15 && sideRel < 165) {
-      sunEl.style.display = "";
-      sunEl.style.left = (20 + (sideRel - 15) / 150 * 60) + "%";
-      sunEl.style.top = Math.max(8, 62 - sun.elev * 1.6) + "%";
-      sunEl.className = "win-sun" + (sun.elev < 6 ? " low" : "");
-    } else sunEl.style.display = "none";
-    $("winSideL").setAttribute("aria-pressed", winSide === "left");
-    $("winSideR").setAttribute("aria-pressed", winSide === "right");
-    $("winOver").textContent = cap(over);
-    // what's out there on this side
-    const here = { lat: P.lat, lon: P.lon }, list = [];
-    for (const [n, lat, lon, rng] of MAP ? MAP.pois : []) {
-      const d = dist(here, { lat, lon }); if (d < 4 || d > (rng || 230)) continue;
-      const r = ((bearing(here, { lat, lon }) - (P.hdg || 0) + 540) % 360) - 180;
-      if (winSide === "left" ? (r <= -20 && r >= -160) : (r >= 20 && r <= 160)) list.push({ n, d });
-    }
-    list.sort((a, b) => a.d - b.d);
-    $("winList").innerHTML = list.length ? list.slice(0, 4).map(x => "<li><b>" + esc(x.n) + "</b><span>" + fmtInt(x.d) + " km</span></li>").join("") : "<li><b>" + (sea ? "Open sea, all the way to the horizon" : "Nothing big out this side right now") + "</b></li>";
-    const mine = seatSide(P.leg.seat);
-    $("winNote").textContent = (mine === "left" || mine === "right") ? (mine === winSide ? "This is your side (seat " + P.leg.seat.toUpperCase() + ")." : "Your seat " + P.leg.seat.toUpperCase() + " is on the " + mine + ".") : "Pick the side you're sitting on.";
-    $("winSrc").textContent = P.src === "gps" ? "LIVE GPS" : P.src === "est" ? "ESTIMATE" : "PREVIEW";
-    applyShade();
-  }
-  function applyShade() {
-    $("winShade").style.height = (shade * 100).toFixed(1) + "%";
-    $("win").style.setProperty("--light", (1 - shade * 0.55).toFixed(3));
-  }
-  function slideSound(v) {
-    const a = audio(); if (!a || v < 0.02) return;
-    burst(0.05, 900 + v * 1800, 1.4, Math.min(0.35, v * 0.9));
-  }
-  const clickSound = () => burst(0.025, 2400, 2, 0.5);
-  $("winPane").addEventListener("pointerdown", e => {
-    const r = $("winPane").getBoundingClientRect();
-    SH = { id: e.pointerId, y0: e.clientY, s0: shade, h: r.height, lastY: e.clientY, lastT: performance.now(), v: 0, acc: 0 };
-    try { $("winPane").setPointerCapture(e.pointerId); } catch (err) {}
-    $("winShade").classList.add("drag");
-  });
-  $("winPane").addEventListener("pointermove", e => {
-    if (!SH || e.pointerId !== SH.id) return;
-    const now = performance.now();
-    shade = Math.max(0, Math.min(1, SH.s0 + (e.clientY - SH.y0) / (SH.h * 0.92)));
-    SH.v = (e.clientY - SH.lastY) / Math.max(8, now - SH.lastT);
-    SH.acc += Math.abs(e.clientY - SH.lastY);
-    if (SH.acc > 10) { slideSound(Math.min(1, Math.abs(SH.v))); SH.acc = 0; }
-    SH.lastY = e.clientY; SH.lastT = now;
-    applyShade();
-  });
-  function endShade(e) {
-    if (!SH || (e && e.pointerId !== SH.id)) return;
-    const v = SH.v; SH = null;
-    $("winShade").classList.remove("drag");
-    // a flick sends it all the way, like the real thing
-    let target = shade;
-    if (v > 0.6) target = 1; else if (v < -0.6) target = 0;
-    else if (shade < 0.06) target = 0; else if (shade > 0.94) target = 1;
-    if (target !== shade) {
-      const from = shade, t0 = performance.now();
-      (function go(now) {
-        const k = Math.min(1, (now - t0) / 260), e2 = 1 - Math.pow(1 - k, 3);
-        shade = from + (target - from) * e2; applyShade();
-        if (k < 1) requestAnimationFrame(go); else clickSound();
-      })(t0);
-      slideSound(0.8);
-    } else if (shade === 0 || shade === 1) clickSound();
-  }
-  $("winPane").addEventListener("pointerup", endShade);
-  $("winPane").addEventListener("pointercancel", endShade);
-  $("winSideL").addEventListener("click", () => { winSide = "left"; renderWindowView(); });
-  $("winSideR").addEventListener("click", () => { winSide = "right"; renderWindowView(); });
-  $("winClose").addEventListener("click", closeWindow);
-  $("porthole").addEventListener("click", openWindow);
-  $("openWindow").addEventListener("click", openWindow);
-
   // ================= SEATBACK SCREEN =================
   let ifeIdx = 0, ifeTimer = null, ifeTick = null;
   const IFE_PANES = ["map", "data", "times", "window"];
@@ -1401,7 +1300,7 @@
   $("ifeBody").addEventListener("click", () => { ifeIdx = (ifeIdx + 1) % IFE_PANES.length; renderIFE(true); clearInterval(ifeTimer); ifeTimer = setInterval(() => { ifeIdx = (ifeIdx + 1) % IFE_PANES.length; renderIFE(true); }, 9000); });
   $("ifeClose").addEventListener("click", closeIFE);
   $("openIFE").addEventListener("click", openIFE);
-  document.addEventListener("keydown", e => { if (e.key === "Escape") { closeIFE(); closeWindow(); } });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeIFE(); });
 
   // first visit: the first untorn stub gives a little wiggle so you know it moves
   let hinted = false;
