@@ -1,5 +1,5 @@
 // Flight Deck service worker: keeps every file on the phone so the app opens with no internet.
-const CACHE = "flightdeck-v22";
+const CACHE = "flightdeck-v23";
 const FILES = [
   "./", "index.html", "app.css", "app.js", "manifest.webmanifest",
   "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png",

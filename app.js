@@ -1417,9 +1417,11 @@
       look.innerHTML = "<b>From your boarding pass</b> · " + esc(airlineOf(L.carrier + " " + L.flight) || L.carrier) + " " + esc(L.flight) + (L.seat ? " · seat " + esc(L.seat) : "") + (L.pnr ? " · booking " + esc(L.pnr) : "") +
         "<br><span>" + (needTime ? "Boarding passes don't include the time. Set the departure time below." : "Check the times match your ticket.") + (pass.legs.length > 1 ? " This pass has " + pass.legs.length + " flights; add the others separately." : "") + "</span>";
       upd(); touched.fArr = false; fillArr();
-      if (needTime) setTimeout(() => { $("fDep").focus(); $("fDep").scrollIntoView({ block: "center", behavior: "smooth" }); }, 300);
+      if (needTime) setTimeout(() => $("fDep").scrollIntoView({ block: "center", behavior: "smooth" }), 300);
     });
-    $("fDep").addEventListener("change", () => { needTime = false; $("fDep").classList.remove("needtime"); });
+    // any edit to the departure time counts as "set" (iPhone fires input or change depending on version)
+    const timeSet = () => { if (!needTime) return; needTime = false; $("fDep").classList.remove("needtime"); $("fErr").textContent = ""; };
+    ["input", "change"].forEach(ev => $("fDep").addEventListener(ev, timeSet));
     $("cancelSheet").onclick = closeSheet;
     if (f) $("fDelete").onclick = e => {
       const b = e.currentTarget;
@@ -1431,7 +1433,8 @@
       const fr = $("fFrom").dataset.code, tt = $("fTo").dataset.code;
       if (!fr || !tt) { $("fErr").textContent = "Pick both airports from the list (type a city or a 3-letter code)."; return; }
       if (fr === tt) { $("fErr").textContent = "From and To are the same airport."; return; }
-      if (needTime) { $("fErr").textContent = "Set the departure time from your ticket (the boarding pass only has the date)."; $("fDep").focus(); return; }
+      // ask once (no forced focus: on iPhone that pops the date picker every time), then let it through
+      if (needTime) { needTime = false; $("fErr").textContent = "Departure is set to " + ($("fDep").value || "").slice(11, 16) + ". Change it to the time on your ticket, or tap Add flight again to keep it."; $("fDep").scrollIntoView({ block: "center", behavior: "smooth" }); return; }
       const rec = f || { id: uid(), torn: false, tornAt: 0, tear: null, stickers: [], added: Date.now() };
       Object.assign(rec, { from: fr, to: tt, no: $("fNo").value.trim(), seat: $("fSeat").value.trim(), gate: $("fGate").value.trim(), dep: $("fDep").value, arr: $("fArr").value });
       const t = legTimes(Object.assign({}, rec, { dur: 0 }));
@@ -1478,31 +1481,64 @@
   // ================= RUPEE CHECKER =================
   function fmtMoney(n, cur) { return (cur === "INR" ? "₹" : "S$") + (n >= 100 ? Math.round(n).toLocaleString("en-IN") : n.toFixed(2)); }
   let inrDir = "INR";
+  function agoWords(ms) {
+    const m = Math.round(ms / 60000);
+    return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + (m < 2880 ? " day ago" : " days ago");
+  }
+  let rateBusy = false, rateFail = false;
   function renderRupee() {
     const rate = state.inr.rate;                // SGD for 1 INR
     const v = parseFloat(($("inrIn").value || "").replace(/,/g, ""));
     $("inrCur").textContent = inrDir === "INR" ? "₹" : "S$";
     $("inrSwap").setAttribute("aria-label", inrDir === "INR" ? "Switch to Singapore dollars to rupees" : "Switch to rupees to Singapore dollars");
-    if (!rate) { $("inrOut").textContent = "—"; $("inrNote").innerHTML = "Open the app once with internet to get today's rate, or <button class=\"linkbtn\" id=\"inrSet\">set it yourself</button>."; }
-    else {
+    const refresh = '<button class="linkbtn" id="inrRefresh">' + (rateBusy ? "updating…" : "↻ update") + "</button>";
+    if (!rate) {
+      $("inrOut").textContent = "—";
+      $("inrNote").innerHTML = (rateBusy ? "Getting today's rate…" : rateFail ? "Couldn't get the rate (offline?). " + refresh + " or " : "") + (rateBusy ? "" : '<button class="linkbtn" id="inrSet">set it yourself</button>');
+    } else {
       $("inrOut").textContent = isNaN(v) ? (inrDir === "INR" ? "S$0" : "₹0") : (inrDir === "INR" ? fmtMoney(v * rate, "SGD") : fmtMoney(v / rate, "INR"));
-      const d = new Date(state.inr.at);
-      $("inrNote").innerHTML = "S$1 ≈ ₹" + (1 / rate).toFixed(1) + " · " + (state.inr.manual ? "your rate" : "rate from " + d.getDate() + " " + MONS[d.getMonth()].toLowerCase()) + " · <button class=\"linkbtn\" id=\"inrSet\">change</button>";
+      const head = "<b>S$1 = ₹" + (1 / rate).toFixed(2) + "</b> · ";
+      $("inrNote").innerHTML = state.inr.manual
+        ? head + 'your own rate · <button class="linkbtn" id="inrLive">use the live rate</button>'
+        : head + (rateFail && !rateBusy ? "offline, last updated " : "market rate, updated ") + agoWords(Date.now() - state.inr.at) + " · " + refresh + ' · <button class="linkbtn" id="inrSet">set my own</button>' +
+          '<br><span class="fine">Money changers and cards give a little less than this.</span>';
     }
-    $("inrQuick").innerHTML = rate ? [100, 500, 1000, 5000].map(n => "<div><b>₹" + n.toLocaleString("en-IN") + "</b><span>" + fmtMoney(n * rate, "SGD") + "</span></div>").join("") : "";
+    $("inrQuick").innerHTML = rate ? (inrDir === "INR" ? [100, 500, 1000, 5000].map(n => "<div><b>₹" + n.toLocaleString("en-IN") + "</b><span>" + fmtMoney(n * rate, "SGD") + "</span></div>")
+      : [5, 10, 50, 100].map(n => "<div><b>S$" + n + "</b><span>" + fmtMoney(n / rate, "INR") + "</span></div>")).join("") : "";
   }
-  async function fetchRate() {
-    if (state.inr.manual && state.inr.rate) return;
-    if (state.inr.at && Date.now() - state.inr.at < 6 * 3600000) return;
-    try {
-      const r = await fetch("https://api.frankfurter.app/latest?from=INR&to=SGD", { cache: "no-store" });
-      const d = await r.json();
-      if (d && d.rates && d.rates.SGD) { state.inr = { rate: d.rates.SGD, at: Date.now(), manual: false }; commit({ quiet: true }); renderRupee(); }
-    } catch (e) {}
+  // several free sources (no key needed) so one going down doesn't break it. All give rupees per Singapore dollar.
+  const RATE_SOURCES = [
+    ["https://latest.currency-api.pages.dev/v1/currencies/sgd.json", d => d.sgd && d.sgd.inr],
+    ["https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/sgd.json", d => d.sgd && d.sgd.inr],
+    ["https://open.er-api.com/v6/latest/SGD", d => d.rates && d.rates.INR],
+    ["https://api.frankfurter.dev/v1/latest?base=SGD&symbols=INR", d => d.rates && d.rates.INR]
+  ];
+  async function fetchRate(force) {
+    if (rateBusy || (state.inr.manual && state.inr.rate && !force)) return;
+    if (!force && state.inr.at && Date.now() - state.inr.at < 30 * 60000) return;
+    if (!navigator.onLine && !force) { rateFail = true; renderRupee(); return; }
+    rateBusy = true; renderRupee();
+    let got = 0;
+    for (const [url, pick] of RATE_SOURCES) {
+      try {
+        const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 7000);
+        const r = await fetch(url, { cache: "no-store", signal: ctl.signal }); clearTimeout(to);
+        const n = +pick(await r.json());
+        if (n > 20 && n < 200) { got = n; break; }      // sanity check: S$1 is somewhere around ₹60–75
+      } catch (e) {}
+    }
+    rateBusy = false; rateFail = !got;
+    if (got) { state.inr = { rate: 1 / got, at: Date.now(), manual: false }; commit({ quiet: true }); }
+    renderRupee();
   }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") fetchRate(); });
+  window.addEventListener("online", () => fetchRate());
+  setInterval(() => { if (document.visibilityState === "visible") { fetchRate(); renderRupee(); } }, 5 * 60000);
   $("inrIn").addEventListener("input", renderRupee);
   $("inrSwap").addEventListener("click", () => { inrDir = inrDir === "INR" ? "SGD" : "INR"; renderRupee(); });
   $("rupee").addEventListener("click", e => {
+    if (e.target.id === "inrRefresh") { fetchRate(true); return; }
+    if (e.target.id === "inrLive") { state.inr.manual = false; state.inr.at = 0; commit({ quiet: true }); fetchRate(true); return; }
     if (e.target.id !== "inrSet") return;
     const cur = state.inr.rate ? (1 / state.inr.rate).toFixed(1) : "";
     $("inrNote").innerHTML = '<span style="display:flex;gap:8px;align-items:center">₹ per S$1 <input type="number" id="inrRate" inputmode="decimal" value="' + cur + '" style="width:90px;padding:6px"><button class="btn sm" id="inrOk">Save</button></span>';
