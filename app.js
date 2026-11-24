@@ -2038,6 +2038,40 @@
     const nm = $("ppName");
     if (nm) nm.addEventListener("change", () => { state.name = nm.value.trim().slice(0, 40); commit({ quiet: true }); renderPassport(); });
   }
+  // ---- clear the page you're looking at: its stickers, and on a journal page its moments ----
+  let clearArmed = 0, clearUndo = null;
+  function pageContents() {
+    const sheet = $("ppBook").querySelector(".pp-sheet:not(.leaf)") || $("ppBook").querySelector(".pp-sheet"); if (!sheet) return null;
+    const key = sheet.dataset.pg, pg = ppPages()[ppPage] || {};
+    const st = state.ppStickers.filter(x => x.pg === key), mo = pg.k === "journal" ? (pg.moments || []) : [];
+    return { key, st, mo };
+  }
+  function updClear() {
+    const b = $("ppClear"); if (clearUndo) return;
+    const c = pageContents(), n = c ? c.st.length + c.mo.length : 0;
+    b.hidden = !n; clearArmed = 0; b.classList.remove("armed"); b.textContent = "Clear this page";
+  }
+  new MutationObserver(() => updClear()).observe($("ppBook"), { childList: true });
+  $("ppClear").addEventListener("click", () => {
+    const b = $("ppClear");
+    if (clearUndo) {          // undo
+      clearTimeout(clearUndo.t); state.ppStickers = clearUndo.st; state.moments = clearUndo.mo; clearUndo = null;
+      commit({ quiet: true }); renderPassport(); toast("Page restored"); return;
+    }
+    const c = pageContents(); if (!c) return;
+    const words = [c.st.length ? c.st.length + " sticker" + (c.st.length > 1 ? "s" : "") : "", c.mo.length ? c.mo.length + " moment" + (c.mo.length > 1 ? "s" : "") : ""].filter(Boolean).join(" and ");
+    if (!clearArmed) { clearArmed = 1; b.classList.add("armed"); b.textContent = "Tap again to remove " + words; setTimeout(() => { if (clearArmed && !clearUndo) updClear(); }, 4000); return; }
+    const gone = new Set(c.mo.map(m => m.id));
+    const prev = { st: state.ppStickers.slice(), mo: state.moments.slice() };
+    state.ppStickers = state.ppStickers.filter(x => x.pg !== c.key);
+    state.moments = state.moments.filter(m => !gone.has(m.id));
+    commit({ quiet: true }); renderPassport(); snapSound();
+    clearUndo = Object.assign(prev, { t: setTimeout(() => {   // undo window over: now really delete the photos
+      c.mo.forEach(m => { if (m.photo) photoDel(m.id); }); clearUndo = null; updClear();
+    }, 7000) });
+    b.hidden = false; b.classList.remove("armed"); b.textContent = "↶ Undo (" + words + " removed)";
+  });
+
   // page turns: the page is two-sided, and the page underneath is always there
   let flipAnim = null;
   function makeLeaf(html) {

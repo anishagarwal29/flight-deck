@@ -901,3 +901,6 @@ button, .btn, .chip, .tab, nav, label.switch, .linkbtn { -webkit-user-select: no
 .app-hint b { font-family: var(--font-display); font-size: 18px; }
 .app-hint p b { font-family: var(--font-ui); font-size: inherit; }
 .app-hint p { margin-top: 4px; }
+.pp-clear { text-align: center; margin-top: -6px; }
+#ppClear { font-size: 14px; color: var(--muted); }
+#ppClear.armed { color: var(--red); }
