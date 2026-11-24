@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Flight Deck">
-<meta name="theme-color" content="#e9e2d3">
+<meta name="theme-color" content="#07090f">
 <title>Flight Deck</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -23,7 +23,6 @@
     <div class="brand">
       <svg viewBox="-12 -12 24 24" aria-hidden="true"><path d="M0,-10 L1.6,-3 L9,2 L9,4 L1.6,1.5 L1.2,7 L3.5,9 L3.5,10.5 L0,9.5 L-3.5,10.5 L-3.5,9 L-1.2,7 L-1.6,1.5 L-9,4 L-9,2 L-1.6,-3 Z" transform="rotate(45)"/></svg>
       <h1>Flight <em>Deck</em></h1>
-      <a class="cabin-link" href="cabin/">First class</a>
     </div>
     <div class="sync"><i></i><span id="syncTxt">Saved on this phone</span></div>
     <div class="clocks">
@@ -67,7 +66,6 @@
           <button class="btn red" id="gpsBtn">Start GPS</button>
         </div>
         <label class="switch"><input type="checkbox" id="annOn"> Captain announcements</label>
-        <label class="switch" id="annVoiceRow"><input type="checkbox" id="annVoice"> Read them out loud</label>
       </div>
 
       <div class="toolbar fx-btns">
@@ -113,7 +111,6 @@
     <section class="view" id="v-passport" aria-label="Passport">
       <div class="pass-bar"><div><h2 class="pp-title">Passport</h2><span class="kicker" id="ppCount"></span></div><span style="flex:1"></span><button class="btn ghost sticker-toggle">Stickers</button></div>
       <div class="pp-book" id="ppBook"></div>
-      <div class="pp-nav"><button class="btn ghost" id="ppPrev" aria-label="Previous page">‹</button><span id="ppPageNo">COVER</span><button class="btn ghost" id="ppNext" aria-label="Next page">›</button></div>
       <p class="note" style="text-align:center">Swipe or tap the edges to turn pages. Stamps appear as you fly.</p>
     </section>
 
@@ -121,11 +118,13 @@
     <section class="view" id="v-check" aria-label="Packing checklist">
       <div class="ck-head">
         <div><h2>Checklist</h2><span class="count" id="ckCount"></span></div>
-        <button class="edit-btn" id="ckEditBtn">Edit</button>
       </div>
       <div class="progress"><div id="ckBar" style="width:0%"></div></div>
       <div id="cleared"></div>
-      <div id="ckSections" style="display:flex;flex-direction:column;gap:12px"></div>
+      <div class="card ck-card"><div id="ckList"></div>
+        <div class="ck-add"><button class="btn" id="ckAddItem">＋ Item</button><button class="btn" id="ckAddDiv">＋ Divider</button></div>
+      </div>
+      <p class="note" style="text-align:center">Tap the circle to tick · Enter for a new line · swipe left to delete</p>
     </section>
   </main>
 
@@ -159,15 +158,6 @@
   </div>
 </div>
 
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <filter id="inkGrain" x="-5%" y="-5%" width="110%" height="110%">
-    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="n"/>
-    <feDisplacementMap in="SourceGraphic" in2="n" scale="0.7" xChannelSelector="R" yChannelSelector="G" result="d"/>
-    <feTurbulence type="fractalNoise" baseFrequency="0.35" numOctaves="2" seed="3" result="m"/>
-    <feColorMatrix in="m" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.5 1.62" result="mask"/>
-    <feComposite in="d" in2="mask" operator="in"/>
-  </filter>
-</svg>
 
 <script src="app.js"></script>
 </body>

@@ -103,7 +103,7 @@
     out.ann = s.ann && typeof s.ann === "object" ? s.ann : {};
     out.annOn = s.annOn !== false; out.annVoice = !!s.annVoice;
     out.inr = s.inr && typeof s.inr === "object" ? { rate: +s.inr.rate || 0, at: +s.inr.at || 0, manual: !!s.inr.manual } : d.inr;
-    out.checklist = Array.isArray(s.checklist) ? s.checklist.filter(c => c && c.id).map(c => ({ id: String(c.id), sec: String(c.sec || "OTHER"), label: String(c.label || ""), done: !!c.done })) : d.checklist;
+    out.checklist = Array.isArray(s.checklist) ? s.checklist.filter(c => c && c.id).map(c => ({ id: String(c.id), sec: String(c.sec == null ? "" : c.sec), label: String(c.label || ""), done: !!c.done })) : d.checklist;
     return out;
   }
 
@@ -1153,82 +1153,79 @@
   }
   $("gpsBtn").addEventListener("click", () => gps.status === "searching" ? stopGPS() : startGPS());
 
-  // ================= CHECKLIST =================
-  let ckEditing = false;
-  function flip(container, fn) {
-    const first = new Map();
-    container.querySelectorAll("[data-fid]").forEach(el => first.set(el.dataset.fid, el.getBoundingClientRect().top));
-    fn();
-    if (reduceMotion || !Element.prototype.animate) return;
-    container.querySelectorAll("[data-fid]").forEach(el => {
-      const f = first.get(el.dataset.fid);
-      if (f == null) { if (first.size) el.animate([{ opacity: 0, transform: "translateY(-6px)" }, { opacity: 1, transform: "none" }], { duration: 260, easing: "ease-out" }); return; }
-      const d = f - el.getBoundingClientRect().top;
-      if (Math.abs(d) > 1) el.animate([{ transform: "translateY(" + d + "px)" }, { transform: "none" }], { duration: 380, easing: "cubic-bezier(.2,.8,.2,1)" });
-    });
-  }
-  function sections() { const s = []; state.checklist.forEach(c => { if (!s.includes(c.sec)) s.push(c.sec); }); return s; }
-  function renderChecklist(popId) {
-    const list = state.checklist, doneN = list.filter(c => c.done).length;
-    $("ckCount").textContent = doneN + " of " + list.length + " packed";
-    $("ckBar").style.width = (list.length ? doneN / list.length * 100 : 0) + "%";
-    $("ckEditBtn").textContent = ckEditing ? "Done" : "Edit";
+  // ================= CHECKLIST (no edit mode: type, Enter, tick, swipe) =================
+  function renderChecklist(focusId, focusEnd) {
+    if (!focusId && document.activeElement && $("ckList").contains(document.activeElement) && document.activeElement.tagName === "INPUT") { ckProgress(); return; }   // don't yank the keyboard away mid-typing
+    const list = state.checklist, real = list.filter(c => c.label.trim()), doneN = real.filter(c => c.done).length;
+    $("ckCount").textContent = doneN + " of " + real.length + " packed";
+    $("ckBar").style.width = (real.length ? doneN / real.length * 100 : 0) + "%";
     const cl = $("cleared");
-    if (!ckEditing && list.length && doneN === list.length) { if (!cl.firstChild) cl.innerHTML = '<div class="cleared"><div class="big">CLEARED FOR<br>DEPARTURE</div><p>Everything\'s packed. Have a good flight.</p></div>'; }
+    if (real.length && doneN === real.length) { if (!cl.firstChild) cl.innerHTML = '<div class="cleared"><div class="big">CLEARED FOR<br>DEPARTURE</div><p>Everything\'s packed. Have a good flight.</p></div>'; }
     else cl.innerHTML = "";
-    const box = $("ckSections");
-    const secs = sections();
-    if (!ckEditing) {
-      flip(box, () => {
-        box.innerHTML = secs.map(sec => {
-          const items = list.filter(c => c.sec === sec).slice().sort((a, b) => a.done - b.done);
-          const d = items.filter(c => c.done).length;
-          return '<div class="section"><h3>' + esc(sec) + "<span>" + d + "/" + items.length + "</span></h3>" +
-            items.map(c => '<div class="item' + (c.done ? " done" : "") + (c.id === popId ? " pop" : "") + '" data-fid="' + esc(c.id) + '"><button class="tog" data-ck="' + esc(c.id) + '" aria-pressed="' + c.done + '"><span class="box">' + CHECK_SVG + '</span><span class="lab">' + esc(c.label) + "</span></button></div>").join("") + "</div>";
-        }).join("");
-      });
-    } else {
-      box.innerHTML = secs.map((sec, si) => {
-        const items = list.filter(c => c.sec === sec);
-        return '<div class="section"><h3><input class="sec-name" value="' + esc(sec) + '" data-sec="' + esc(sec) + '" aria-label="Section name"><button class="linkbtn" data-delsec="' + esc(sec) + '">Delete</button></h3>' +
-          items.map(c => '<div class="erow"><button class="minus" data-del="' + esc(c.id) + '" aria-label="Delete ' + esc(c.label) + '">−</button><input type="text" value="' + esc(c.label) + '" data-ren="' + esc(c.id) + '" aria-label="Item name"></div>').join("") +
-          '<form class="erow" data-add="' + esc(sec) + '"><span class="plus">+</span><input type="text" id="add-' + si + '" placeholder="Add item" aria-label="Add item to ' + esc(sec) + '" enterkeyhint="done"></form></div>';
-      }).join("") +
-        '<form class="section erow" data-newsec="1" style="padding:8px 12px"><span class="plus">+</span><input type="text" id="newSec" placeholder="New section" aria-label="New section name"></form>' +
-        '<div class="toolbar"><button class="btn danger sm" id="untick">Untick everything</button></div>';
-    }
+    const groups = []; list.forEach(c => { let g = groups[groups.length - 1]; if (!g || g.sec !== c.sec) groups.push(g = { sec: c.sec, items: [] }); g.items.push(c); });
+    $("ckList").innerHTML = (list.length ? "" : '<p class="note ck-empty">Nothing on the list yet. Add the first thing to pack.</p>') + groups.map((g, gi) =>
+      '<div class="ck-div"><input value="' + esc(g.sec || "") + '" data-gi="' + gi + '" placeholder="NAME THIS" aria-label="Divider name" enterkeyhint="done"></div>' +
+      g.items.map(c => '<div class="ck-item' + (c.done ? " done" : "") + '" data-id="' + esc(c.id) + '"><div class="ck-del">DELETE</div><div class="ck-row">' +
+        '<button class="ck-box" data-tick aria-label="Tick">' + CHECK_SVG + '</button>' +
+        '<input value="' + esc(c.label) + '" data-label placeholder="Something to pack" aria-label="Item" enterkeyhint="next"></div></div>').join("")).join("");
+    $("ckList")._groups = groups;
+    if (focusId) { const inp = document.querySelector('.ck-item[data-id="' + focusId + '"] input'); if (inp) { inp.focus(); const n = focusEnd ? inp.value.length : 0; try { inp.setSelectionRange(n, n); } catch (e) {} } }
   }
-  const box = $("ckSections");
-  box.addEventListener("click", e => {
-    const t = e.target.closest("[data-ck]");
-    if (t) { const c = state.checklist.find(x => x.id === t.dataset.ck); if (c) { c.done = !c.done; commit({ quiet: true }); renderChecklist(c.done ? c.id : null); if (c.done && navigator.vibrate) navigator.vibrate(10); } return; }
-    const d = e.target.closest("[data-del]");
-    if (d) { const row = d.closest(".erow"); const go = () => { state.checklist = state.checklist.filter(x => x.id !== d.dataset.del); commit(); };
-      if (row && row.animate && !reduceMotion) row.animate([{ opacity: 1 }, { opacity: 0, transform: "translateX(-30px)" }], { duration: 180 }).onfinish = go; else go(); return; }
-    const ds = e.target.closest("[data-delsec]");
-    if (ds) { state.checklist = state.checklist.filter(x => x.sec !== ds.dataset.delsec); commit(); return; }
-    if (e.target.id === "untick") { const b = e.target; if (b.dataset.armed) { state.checklist.forEach(c => c.done = false); commit(); } else { b.dataset.armed = "1"; b.textContent = "Tap again to untick all"; } }
+  const ckBox = $("ckList");
+  const ckItem = el => { const row = el.closest(".ck-item"); return row && state.checklist.find(c => c.id === row.dataset.id); };
+  function ckProgress() {
+    const real = state.checklist.filter(c => c.label.trim()), d = real.filter(c => c.done).length;
+    $("ckCount").textContent = d + " of " + real.length + " packed"; $("ckBar").style.width = (real.length ? d / real.length * 100 : 0) + "%";
+  }
+  function ckRemove(c, el) {
+    const go = () => { const i = state.checklist.indexOf(c); if (i >= 0) state.checklist.splice(i, 1); commit({ quiet: true }); renderChecklist(); };
+    if (el && el.animate && !reduceMotion) { el.style.height = el.offsetHeight + "px"; el.animate([{ opacity: 1, height: el.offsetHeight + "px" }, { opacity: 0, height: "0px" }], { duration: 220, easing: "ease-in" }).onfinish = go; } else go();
+  }
+  ckBox.addEventListener("click", e => {
+    const t = e.target.closest("[data-tick]"); if (!t) return;
+    const c = ckItem(t); if (!c) return;
+    c.done = !c.done; const row = t.closest(".ck-item"); row.classList.toggle("done", c.done); if (c.done) { row.classList.remove("pop"); void row.offsetWidth; row.classList.add("pop"); if (navigator.vibrate) navigator.vibrate(10); }
+    commit({ quiet: true }); ckProgress();
+    const real = state.checklist.filter(x => x.label.trim()); if (real.length && real.every(x => x.done)) renderChecklist(); else $("cleared").innerHTML = "";
   });
-  box.addEventListener("change", e => {
-    const r = e.target.dataset.ren;
-    if (r) { const c = state.checklist.find(x => x.id === r); const v = e.target.value.trim(); if (c && v && v !== c.label) { c.label = v; commit({ quiet: true }); } return; }
-    const s = e.target.dataset.sec;
-    if (s) { const v = e.target.value.trim().toUpperCase(); if (v && v !== s) { state.checklist.forEach(c => { if (c.sec === s) c.sec = v; }); commit(); } }
+  ckBox.addEventListener("input", e => {
+    if (e.target.matches("[data-label]")) { const c = ckItem(e.target); if (c) { c.label = e.target.value; commit({ quiet: true }); ckProgress(); } }
   });
-  box.addEventListener("submit", e => {
-    e.preventDefault();
-    const f = e.target, inp = f.querySelector("input"), v = inp.value.trim();
-    if (!v) return;
-    const fid = inp.id;
-    if (f.dataset.newsec) state.checklist.push({ id: uid(), sec: v.toUpperCase(), label: "New item", done: false });
-    else state.checklist.push({ id: uid(), sec: f.dataset.add, label: v, done: false });
-    commit();
-    const again = $(fid); if (again && !f.dataset.newsec) again.focus();
+  ckBox.addEventListener("change", e => {
+    if (e.target.matches("[data-gi]")) { const g = ckBox._groups[+e.target.dataset.gi], v = e.target.value.trim().toUpperCase(); g.items.forEach(c => c.sec = v); commit({ quiet: true }); }
   });
-  $("ckEditBtn").addEventListener("click", () => {
-    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-    ckEditing = !ckEditing; renderChecklist();
+  ckBox.addEventListener("keydown", e => {
+    if (e.target.matches("[data-gi]") && e.key === "Enter") { e.preventDefault(); e.target.blur(); const g = ckBox._groups[+e.target.dataset.gi]; if (g && g.items[0] && !g.items[0].label) renderChecklist(g.items[0].id); return; }
+    if (!e.target.matches("[data-label]")) return;
+    const c = ckItem(e.target); if (!c) return;
+    if (e.key === "Enter") { e.preventDefault(); const n = { id: uid(), sec: c.sec, label: "", done: false }; state.checklist.splice(state.checklist.indexOf(c) + 1, 0, n); commit({ quiet: true }); renderChecklist(n.id); }
+    else if (e.key === "Backspace" && !e.target.value) { e.preventDefault(); const i = state.checklist.indexOf(c), prev = state.checklist[i - 1]; state.checklist.splice(i, 1); commit({ quiet: true }); renderChecklist(prev && prev.id, true); }
   });
+  ckBox.addEventListener("focusout", e => {
+    if (!e.target.matches("[data-label]")) return;
+    const c = ckItem(e.target);
+    setTimeout(() => { if (c && !c.label.trim() && state.checklist.includes(c) && !(document.activeElement && document.activeElement.closest && document.activeElement.closest(".ck-item[data-id='" + c.id + "']"))) { state.checklist.splice(state.checklist.indexOf(c), 1); commit({ quiet: true }); if (!ckBox.contains(document.activeElement)) renderChecklist(); } }, 150);
+  });
+  // swipe left to delete (finger or mouse)
+  let sw = null;
+  ckBox.addEventListener("pointerdown", e => { const row = e.target.closest(".ck-row"); if (!row || e.target.closest("button")) return; sw = { row, x: e.clientX, y: e.clientY, dx: 0, on: false, id: e.pointerId }; });
+  ckBox.addEventListener("pointermove", e => {
+    if (!sw || e.pointerId !== sw.id) return;
+    const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
+    if (!sw.on) { if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { sw = null; return; } if (dx < -10) { sw.on = true; sw.row.classList.add("swiping"); try { sw.row.setPointerCapture(e.pointerId); } catch (err) {} if (document.activeElement) document.activeElement.blur(); } else return; }
+    sw.dx = Math.min(0, dx); sw.row.style.transform = "translateX(" + sw.dx + "px)";
+    sw.row.parentElement.querySelector(".ck-del").style.opacity = Math.min(1, -sw.dx / 110);
+  });
+  const swEnd = () => {
+    if (!sw) return; const { row, dx, on } = sw; sw = null; if (!on) return;
+    row.classList.remove("swiping");
+    const item = row.parentElement, c = ckItem(row);
+    if (dx < -110 && c) { row.style.transform = "translateX(-110%)"; setTimeout(() => ckRemove(c, item), 160); }
+    else { row.style.transform = ""; item.querySelector(".ck-del").style.opacity = 0; }
+  };
+  ckBox.addEventListener("pointerup", swEnd); ckBox.addEventListener("pointercancel", swEnd);
+  $("ckAddItem").addEventListener("click", () => { const last = state.checklist[state.checklist.length - 1]; const n = { id: uid(), sec: last ? last.sec : "", label: "", done: false }; state.checklist.push(n); commit({ quiet: true }); renderChecklist(n.id); });
+  $("ckAddDiv").addEventListener("click", () => { const n = { id: uid(), sec: "", label: "", done: false }; state.checklist.push(n); commit({ quiet: true }); renderChecklist(); const ins = ckBox.querySelectorAll("[data-gi]"); ins[ins.length - 1].focus(); });
 
   // ================= sheet: add / edit a flight =================
   const scrim = $("scrim"), sheet = $("sheet"), sheetEl = sheet;
@@ -1376,8 +1373,7 @@
       o.connect(g); o2.connect(g2); g2.connect(g); g.connect(a.destination); o.start(t); o2.start(t); o.stop(t + 1.4); o2.stop(t + 1.4);
     });
   }
-  function speak(text) {
-    try { if (!state.annVoice || !window.speechSynthesis) return; const u = new SpeechSynthesisUtterance(text); u.rate = 0.98; u.pitch = 0.9; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) {}
+  function speak() {
   }
   function showAnn(title, text) {
     annQueue.push([title, text]);
@@ -1414,8 +1410,7 @@
     if (P.prog >= 0.995 && P.src === "est") say("landed", "WELCOME TO " + B.CITY, "Welcome to " + B.city + (B.country ? ", " + B.country : "") + ". The local time is " + hhmm(now, B.tz) + ". Thanks for flying with Flight Deck.");
   }
   function partOfDay(ms, tz) { const h = zoned(ms, tz).getUTCHours(); return h < 12 ? "morning" : h < 18 ? "afternoon" : "evening"; }
-  $("annOn").addEventListener("change", e => { state.annOn = e.target.checked; commit({ quiet: true }); $("annVoiceRow").style.display = state.annOn ? "" : "none"; if (state.annOn) showAnn("FROM THE FLIGHT DECK", "Announcements are on. You'll hear from me at boarding, cruise, new countries and landing."); });
-  $("annVoice").addEventListener("change", e => { state.annVoice = e.target.checked; commit({ quiet: true }); if (state.annVoice) speak("This is your captain speaking."); });
+  $("annOn").addEventListener("change", e => { state.annOn = e.target.checked; commit({ quiet: true }); if (state.annOn) showAnn("FROM THE FLIGHT DECK", "Announcements are on. You'll hear from me at boarding, cruise, new countries and landing."); });
 
   // ================= STICKERS =================
   const INDIA_D = "M2.0 43.2 L3.1 42.8 L3.9 41.8 L4.9 41.8 L6.2 41.8 L7.1 42.2 L8.3 41.9 L9.0 41.5 L10.0 41.8 L11.0 41.6 L11.3 40.6 L10.9 39.2 L10.4 38.4 L10.2 37.4 L9.1 37.2 L8.4 36.4 L8.5 35.0 L7.8 34.2 L6.7 33.8 L6.4 33.0 L6.8 32.1 L7.7 31.3 L8.2 30.6 L8.7 29.9 L9.7 29.5 L10.2 30.1 L10.9 30.5 L12.0 30.1 L13.1 30.0 L14.2 29.7 L15.1 28.4 L15.6 27.3 L16.7 26.6 L17.6 26.2 L18.4 25.1 L18.8 24.3 L19.2 23.2 L20.1 22.9 L20.9 22.5 L21.2 21.3 L21.9 20.5 L22.9 19.8 L23.2 18.2 L23.0 17.2 L23.6 16.6 L24.7 16.1 L25.6 15.7 L24.9 15.0 L23.8 14.9 L23.4 13.9 L22.2 13.7 L21.6 12.9 L21.7 11.6 L21.1 10.9 L21.9 10.2 L21.0 9.8 L20.6 8.8 L21.1 7.7 L22.2 7.3 L23.2 7.5 L24.3 7.7 L25.4 7.9 L26.5 8.2 L27.6 7.8 L29.3 7.3 L30.3 7.0 L31.1 6.6 L31.6 6.0 L32.5 5.6 L33.4 5.1 L34.4 4.9 L34.6 6.1 L35.2 7.3 L36.1 8.0 L36.9 8.3 L37.6 8.8 L36.8 9.5 L37.0 11.0 L37.4 11.8 L38.0 12.4 L38.3 13.3 L38.4 14.6 L37.7 15.2 L36.9 14.9 L36.1 14.5 L35.9 15.4 L36.6 16.3 L36.8 17.5 L36.8 18.6 L37.7 18.4 L38.4 18.9 L38.9 19.5 L39.8 19.8 L40.7 20.1 L41.6 20.5 L42.3 21.3 L43.2 21.6 L44.2 22.2 L43.2 23.0 L42.3 23.9 L41.8 24.9 L41.5 25.9 L41.1 26.7 L42.0 27.4 L43.2 27.6 L43.9 28.0 L44.8 28.5 L45.9 29.4 L46.7 29.9 L47.9 30.0 L49.0 30.7 L49.9 31.1 L51.1 31.4 L52.0 31.5 L53.3 31.5 L54.4 31.2 L55.7 31.7 L56.3 32.6 L57.2 33.1 L58.0 33.6 L59.3 33.4 L59.8 34.0 L61.1 34.1 L62.5 34.5 L64.0 34.3 L64.9 35.0 L66.1 34.8 L67.2 34.9 L67.8 33.8 L67.2 32.6 L67.3 31.5 L67.8 30.4 L68.2 29.7 L69.0 29.4 L70.0 29.9 L69.7 31.1 L70.2 31.8 L70.1 33.0 L71.1 33.5 L72.1 33.5 L73.1 33.8 L74.2 33.7 L75.0 33.2 L75.9 33.6 L77.6 33.5 L78.6 33.3 L79.6 33.4 L80.6 33.3 L80.5 32.2 L79.9 31.4 L79.1 31.0 L79.8 30.4 L80.8 30.2 L82.0 30.1 L82.7 29.6 L83.3 28.8 L84.1 28.3 L84.5 27.5 L85.9 27.3 L86.7 26.9 L87.4 26.3 L88.0 25.8 L89.1 25.3 L90.2 25.8 L91.2 26.1 L92.0 25.6 L93.2 25.0 L94.2 25.4 L94.1 26.4 L95.0 26.1 L95.5 27.1 L94.7 27.9 L95.7 28.1 L96.8 28.5 L97.8 28.8 L98.0 29.8 L97.0 30.4 L96.5 30.9 L97.2 32.3 L96.2 31.9 L94.5 31.9 L93.5 32.4 L92.7 33.0 L91.8 33.6 L91.0 34.0 L90.5 35.0 L90.7 36.0 L90.3 36.9 L89.6 37.7 L88.9 38.4 L89.3 39.1 L89.0 40.2 L88.3 41.1 L87.7 42.4 L87.0 43.1 L86.0 42.7 L84.9 42.5 L85.1 43.8 L85.0 44.9 L84.7 45.9 L84.1 46.6 L84.2 48.1 L83.8 48.8 L82.6 48.9 L82.2 48.0 L82.0 46.9 L81.6 45.8 L81.4 44.4 L80.9 43.7 L80.2 44.0 L79.7 44.8 L79.6 45.9 L78.7 45.6 L78.0 44.8 L77.7 43.8 L78.2 42.7 L79.1 42.2 L80.1 41.9 L80.8 41.4 L81.1 40.5 L81.7 39.9 L81.1 39.1 L79.6 38.9 L78.5 38.9 L77.3 38.9 L75.9 38.9 L74.7 38.8 L73.4 38.5 L73.2 36.7 L72.9 35.6 L72.1 36.2 L71.2 35.8 L70.8 34.9 L70.0 35.3 L69.3 34.7 L68.7 34.3 L68.4 35.3 L67.8 35.9 L68.1 36.8 L68.8 37.6 L69.8 37.8 L70.4 38.5 L69.5 38.8 L68.5 39.6 L67.4 40.4 L68.0 41.2 L68.9 41.6 L69.7 42.1 L69.3 43.3 L69.6 44.4 L69.9 45.3 L70.1 46.2 L70.5 47.6 L70.8 48.7 L70.4 49.5 L70.7 50.5 L69.7 50.7 L69.7 49.3 L69.1 49.9 L68.8 50.6 L67.7 50.5 L67.9 49.2 L67.2 48.5 L67.1 49.9 L66.2 50.5 L64.6 50.8 L63.8 51.4 L63.5 52.2 L63.8 53.4 L63.2 54.5 L62.3 55.3 L61.7 55.9 L60.2 56.6 L59.3 56.9 L58.2 56.7 L56.6 58.8 L56.1 59.6 L55.6 60.2 L54.7 61.2 L53.0 62.2 L52.1 63.2 L51.5 63.8 L50.8 64.2 L49.5 64.9 L48.7 65.4 L48.7 66.7 L48.0 67.4 L46.7 68.0 L45.6 67.8 L44.7 69.2 L44.2 69.8 L43.3 69.4 L42.2 69.7 L41.3 71.3 L41.3 73.0 L41.5 74.0 L41.3 74.9 L41.7 76.1 L42.0 77.3 L41.5 76.6 L41.9 77.5 L41.7 79.9 L41.1 81.2 L40.5 82.2 L40.2 83.2 L40.1 84.3 L40.5 86.3 L40.4 87.7 L38.9 87.8 L38.5 88.7 L37.7 89.8 L37.5 90.8 L38.6 91.2 L35.8 91.7 L35.0 92.4 L34.8 93.7 L33.6 94.7 L32.8 95.1 L31.3 94.3 L29.8 92.6 L29.4 91.8 L28.9 90.6 L28.6 89.0 L29.0 89.7 L28.6 88.7 L28.2 87.7 L27.5 86.2 L27.3 85.3 L26.9 84.3 L26.2 83.2 L25.5 82.3 L24.3 80.4 L24.1 79.4 L23.5 77.2 L23.2 76.1 L22.7 75.1 L22.5 74.0 L21.9 73.3 L21.3 72.5 L20.9 71.3 L20.5 70.5 L19.9 69.5 L19.4 68.6 L19.0 67.5 L18.7 65.1 L18.4 64.0 L18.1 62.8 L17.8 61.6 L17.7 60.6 L17.9 59.4 L17.3 58.5 L17.0 57.3 L17.0 55.6 L17.5 54.0 L17.4 52.8 L16.9 52.0 L17.0 50.8 L18.0 50.3 L16.4 50.3 L16.7 49.5 L17.0 48.6 L15.7 48.4 L15.2 49.3 L15.5 50.4 L14.9 51.9 L13.2 52.7 L11.4 53.5 L9.6 53.1 L8.5 52.3 L7.2 50.9 L6.5 50.4 L5.4 49.3 L4.8 48.7 L5.2 47.9 L6.6 48.0 L8.1 47.5 L9.1 46.6 L9.7 46.0 L8.7 46.1 L7.6 46.5 L5.6 46.5 L4.2 45.9 L3.2 44.8 L3.0 43.9 L4.0 43.2 L3.1 43.6 L2.2 44.0Z";
@@ -1730,8 +1725,6 @@
     const book = $("ppBook");
     book.innerHTML = pageHTML(pages[ppPage], ppPage);
     book.classList.toggle("closed", ppPage === 0);
-    $("ppPageNo").textContent = ppPage === 0 ? "COVER" : ppPage + " / " + (pages.length - 1);
-    $("ppPrev").disabled = ppPage === 0; $("ppNext").disabled = ppPage === pages.length - 1;
     $("ppCount").textContent = state.stamps.length + " STAMP" + (state.stamps.length === 1 ? "" : "S");
     const fresh = book.querySelector(".st-wrap.fresh");
     if (fresh) { setTimeout(stampSound, 330); pages[ppPage].stamps && pages[ppPage].stamps.forEach(s => freshStamps.delete(s.id)); }
@@ -1815,8 +1808,6 @@
     const g = a.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.28, t + 0.06); g.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
     s.connect(f); f.connect(g); g.connect(a.destination); s.start(t, Math.random()); s.stop(t + 0.3);
   }
-  $("ppPrev").addEventListener("click", () => turnPage(-1));
-  $("ppNext").addEventListener("click", () => turnPage(1));
   $("ppBook").addEventListener("click", e => {
     if (stickerMode) return;
     const b = e.target.closest("[data-stamp]");
@@ -1936,7 +1927,7 @@
   }, 20000);
 
   renderGPS(); renderChecklist(); renderRupee(); fetchRate();
-  $("annOn").checked = state.annOn; $("annVoice").checked = state.annVoice; $("annVoiceRow").style.display = state.annOn ? "" : "none";
+  $("annOn").checked = state.annOn;
   try { localStorage.removeItem(LS_GPS); } catch (e) {}
   showTab(location.hash.slice(1) || "passes");
   Promise.all([airportsReady, worldReady]).then(() => { VIEW = null; builtKey = ""; renderPasses(); renderFlight(); if (curTab === "passport") renderPassport(); tickClocks(); });
