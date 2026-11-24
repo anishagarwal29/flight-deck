@@ -13,6 +13,9 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="stylesheet" href="app.css">
+<script src="lib/d3-array.min.js"></script>
+<script src="lib/d3-geo.min.js"></script>
+<script src="lib/topojson-client.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -23,39 +26,47 @@
     </div>
     <div class="sync"><i></i><span id="syncTxt">Saved on this phone</span></div>
     <div class="clocks">
-      <div class="clock"><small>SINGAPORE</small><b id="clkS">--:--</b></div>
-      <div class="clock"><small>INDIA</small><b id="clkI">--:--</b></div>
+      <div class="clock"><small>HERE</small><b id="clkA">--:--</b></div>
+      <div class="clock" id="clkBWrap" style="display:none"><small id="clkBLbl">THERE</small><b id="clkB">--:--</b></div>
     </div>
   </header>
 
   <main id="main">
     <!-- PASSES -->
     <section class="view" id="v-passes" aria-label="Boarding passes">
+      <div class="pass-bar">
+        <button class="btn primary" id="addFlightBtn"><span aria-hidden="true">＋</span> Add flight</button>
+        <span style="flex:1"></span>
+        <button class="btn ghost sticker-toggle">Stickers</button>
+        <button class="btn ghost" id="editPassesBtn">Edit</button>
+      </div>
       <div id="passes"></div>
       <div class="card" id="pocket">
         <div class="card-h"><h3>STUB POCKET</h3><span class="kicker" id="pocketCount"></span></div>
         <div class="pocket-row" id="pocketRow"></div>
         <p class="note" id="pocketNote"></p>
       </div>
-      <div class="card" id="passport">
-        <div class="card-h"><h3>PASSPORT</h3><span class="kicker" id="ppCount"></span></div>
-        <div class="booklet">
-          <div class="pp-page left"><div class="pp-head">VISAS <span>12</span></div><div class="pp-stamps" id="ppLeft"></div></div>
-          <div class="pp-page right"><div class="pp-head"><span>13</span> VISAS</div><div class="pp-stamps" id="ppRight"></div></div>
-        </div>
+      <div class="card" id="rupee">
+        <div class="card-h"><h3>RUPEE CHECKER</h3><button class="linkbtn" id="inrSwap">⇄ swap</button></div>
+        <div class="inr-row"><label class="inr-in"><span id="inrCur">₹</span><input type="text" inputmode="decimal" id="inrIn" placeholder="0" autocomplete="off" aria-label="Amount"></label><span class="inr-eq">=</span><b id="inrOut">—</b></div>
+        <div class="inr-quick" id="inrQuick"></div>
+        <p class="note" id="inrNote"></p>
       </div>
-      <div class="toolbar"><button class="btn primary" id="editFlights">Edit flights</button><button class="btn" id="stickerBtn">Stickers</button></div>
       <p class="note">Tap a pass to flip it and see your seat. When you board, hold the stub and drag it down and to the right to tear it off.</p>
     </section>
 
     <!-- FLIGHT -->
     <section class="view" id="v-flight" aria-label="Live flight">
+      <div class="card" id="flightEmpty" style="display:none"><b style="font-family:var(--font-display);font-size:24px">No flights yet</b><p class="note">Add a flight on the Passes tab and this turns into your live flight map.</p></div>
+      <div id="flightMain" style="display:flex;flex-direction:column;gap:14px">
       <div class="card">
         <div class="gps-row">
           <span class="gps-dot" id="gpsDot"></span>
           <p><b id="gpsTitle">GPS is off</b><span id="gpsSub"></span></p>
           <button class="btn red" id="gpsBtn">Start GPS</button>
         </div>
+        <label class="switch"><input type="checkbox" id="annOn"> Captain announcements</label>
+        <label class="switch" id="annVoiceRow"><input type="checkbox" id="annVoice"> Read them out loud</label>
       </div>
 
       <div class="toolbar fx-btns">
@@ -64,7 +75,7 @@
       <div class="legs" id="legChips"></div>
       <div class="mapcard">
         <span class="mode-tag" id="modeTag">PREVIEW</span>
-        <svg id="mapSvg" viewBox="0 0 400 430" role="img" aria-label="Map of the route from Singapore to Kolkata to Patna"></svg>
+        <svg id="mapSvg" viewBox="0 0 400 430" role="img" aria-label="Map of your flight route"></svg>
       </div>
 
       <div class="card">
@@ -94,7 +105,15 @@
         <div class="ahead" id="ahead"></div>
         <p class="note" id="seatHint"></p>
       </div>
+      </div>
+    </section>
 
+    <!-- PASSPORT -->
+    <section class="view" id="v-passport" aria-label="Passport">
+      <div class="pass-bar"><div><h2 class="pp-title">Passport</h2><span class="kicker" id="ppCount"></span></div><span style="flex:1"></span><button class="btn ghost sticker-toggle">Stickers</button></div>
+      <div class="pp-book" id="ppBook"></div>
+      <div class="pp-nav"><button class="btn ghost" id="ppPrev" aria-label="Previous page">‹</button><span id="ppPageNo">COVER</span><button class="btn ghost" id="ppNext" aria-label="Next page">›</button></div>
+      <p class="note" style="text-align:center">Swipe or tap the edges to turn pages. Stamps appear as you fly.</p>
     </section>
 
     <!-- CHECKLIST -->
@@ -113,16 +132,18 @@
     <span class="tab-ind" aria-hidden="true"></span>
     <button data-tab="passes"><svg viewBox="0 0 24 24"><path class="fillme" d="M3 7.5A2.5 2.5 0 0 1 5.5 5h13A2.5 2.5 0 0 1 21 7.5v1.8a2.7 2.7 0 0 0 0 5.4v1.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-1.8a2.7 2.7 0 0 0 0-5.4z"/><path d="M15 6v2M15 11v2M15 16v2"/></svg>Passes</button>
     <button data-tab="flight"><svg viewBox="0 0 24 24"><path class="fillme" d="M21 15.5v-1.6l-7.6-4.6V4.6a1.4 1.4 0 0 0-2.8 0v4.7L3 13.9v1.6l7.6-2.3v4.4l-2.2 1.6v1.3l3.6-1 3.6 1v-1.3l-2.2-1.6v-4.4z"/></svg>Flight</button>
+    <button data-tab="passport"><svg viewBox="0 0 24 24"><rect class="fillme" x="5" y="3" width="14" height="18" rx="2"/><circle cx="12" cy="10.5" r="3.2"/><path d="M8.8 10.5h6.4M12 7.3c-1 1-1 5.4 0 6.4M12 7.3c1 1 1 5.4 0 6.4M9 17h6"/></svg>Passport</button>
     <button data-tab="checklist"><svg viewBox="0 0 24 24"><rect class="fillme" x="4" y="3" width="16" height="18" rx="3"/><path d="m8 9 1.6 1.6L12.5 7.5M8 15.5l1.6 1.6 2.9-3.1M15 9h1.5M15 15.5h1.5"/></svg>Checklist</button>
   </nav>
 </div>
 
-<div class="scrim" id="scrim"><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Edit flights"></div></div>
+<div class="scrim" id="scrim"><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Flight details"></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="ann" id="ann" role="status" aria-live="polite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l5 4V6L7 10z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg><div><small id="annTitle">FROM THE FLIGHT DECK</small><p id="annText"></p></div></div>
 
 <!-- sticker tray -->
 <div class="tray" id="tray" aria-label="Sticker sheet">
-  <div class="tray-h"><span>Drag a sticker onto a pass · drag one off to peel it</span><button class="btn sm primary" id="trayDone">Done</button></div>
+  <div class="tray-h"><span>Drag onto a pass or passport page · drag one off to peel it</span><button class="btn sm primary" id="trayDone">Done</button></div>
   <div class="tray-row" id="trayRow"></div>
 </div>
 
