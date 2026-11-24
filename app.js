@@ -142,7 +142,7 @@
     return { v: 3, updatedAt: 0, name: "", flights: [], stamps: [], ppStickers: [], moments: [], ann: {}, annOn: true, annVoice: false, inr: { rate: 0, at: 0, manual: false }, checklist: defaultChecklist() };
   }
   const code3 = s => /^[A-Za-z]{3}$/.test(String(s || "")) ? String(s).toUpperCase() : "";
-  const cleanStickers = (arr, max) => Array.isArray(arr) ? arr.filter(k => k && typeof k.t === "string").slice(-(max || 20)).map(k => ({ t: String(k.t), x: Math.max(0, Math.min(100, +k.x || 0)), y: Math.max(0, Math.min(100, +k.y || 0)), r: +k.r || 0, s: Math.max(0.6, Math.min(1.6, +k.s || 1)), pg: k.pg != null ? String(k.pg) : undefined })) : [];
+  const cleanStickers = (arr, max) => Array.isArray(arr) ? arr.filter(k => k && typeof k.t === "string").slice(-(max || 1000)).map(k => ({ t: String(k.t), x: Math.max(0, Math.min(100, +k.x || 0)), y: Math.max(0, Math.min(100, +k.y || 0)), r: +k.r || 0, s: Math.max(0.6, Math.min(1.6, +k.s || 1)), pg: k.pg != null ? String(k.pg) : undefined })) : [];
   function sanitize(s) {
     const d = defaults();
     if (!s || typeof s !== "object") return d;
@@ -164,7 +164,7 @@
       }
       return { id, kind: kind === "arr" ? "arr" : "dep", code: code3(code) || "???", at: +x.at || Date.now(), r: +x.r || 0, dx: +x.dx || 0 };
     }).filter(x => x.code !== "???");
-    out.ppStickers = cleanStickers(s.ppStickers, 200);
+    out.ppStickers = cleanStickers(s.ppStickers, 5000);
     out.moments = (Array.isArray(s.moments) ? s.moments : []).filter(m => m && m.id).map(m => ({ id: String(m.id), kind: MOMENT_KINDS[m.kind] ? m.kind : "did", icon: ICONS[m.icon] ? m.icon : (MOMENT_KINDS[m.kind] || MOMENT_KINDS.did).icon, what: String(m.what || "").slice(0, 80), note: String(m.note || "").slice(0, 400),
       where: String(m.where || "").slice(0, 40), at: +m.at || Date.now(), hearts: Math.max(0, Math.min(3, +m.hearts || 0)), photo: !!m.photo, x: m.x == null ? null : +m.x, y: m.y == null ? null : +m.y, r: +m.r || 0 }));
     out.ann = s.ann && typeof s.ann === "object" ? s.ann : {};
@@ -178,6 +178,15 @@
   let state = defaults();
   try { const raw = localStorage.getItem(LS_KEY); if (raw) state = sanitize(JSON.parse(raw)); } catch (e) {}
   try { localStorage.removeItem("flightdeck.tracks"); } catch (e) {}
+  // one-time clean slate (asked for on 24 Nov): clear every sticker and journal moment once, then never again
+  let wipeNow = false;
+  try {
+    if (!localStorage.getItem("flightdeck.wipe-1124")) {
+      wipeNow = true;
+      state.ppStickers = []; state.moments = []; state.flights.forEach(f => { f.stickers = []; });
+      localStorage.setItem(LS_KEY, JSON.stringify(state)); localStorage.setItem("flightdeck.wipe-1124", "1");
+    }
+  } catch (e) {}
 
   let dbRef = null, writing = false, again = false, saveTimer = null, offlineReady = false, cloud = false;
   function setSync() {
@@ -1303,25 +1312,26 @@
   function airportField(id, label, code) {
     return '<div class="field ap-field"><label for="' + id + '">' + label + '</label><input type="text" id="' + id + '" autocomplete="off" autocapitalize="characters" spellcheck="false" value="' + esc(code ? apLabel(code) : "") + '" data-code="' + esc(code || "") + '"><div class="ap-sug" role="listbox"></div></div>';
   }
+  let routeCache = {}; try { routeCache = JSON.parse(localStorage.getItem("flightdeck.routes") || "{}") || {}; } catch (e) {}
   function openFlightEditor(id) {
     const f = id ? state.flights.find(x => x.id === id) : null;
     // a new flight starts where your last one landed
     const o = flightsOrdered(), last = o.up[o.up.length - 1] || o.past[0];
     const from = f ? f.from : (last ? last.to : ""), to = f ? f.to : "";
     sheet.innerHTML = '<form id="flightForm" style="display:flex;flex-direction:column;gap:14px" autocomplete="off"><h2>' + (f ? "Edit flight" : "Add a flight") + "</h2>" +
+      '<div class="field"><label for="fNo">Flight number</label><input type="text" id="fNo" class="fno" value="' + esc(f ? f.no : "") + '" autocomplete="off" autocapitalize="characters" spellcheck="false"><small class="look" id="fLook">Type it and I\'ll fill in the rest</small></div>' +
       '<div class="grid2">' + airportField("fFrom", "From", from) + airportField("fTo", "To", to) + "</div>" +
-      '<div class="grid2"><div class="field"><label for="fNo">Flight number</label><input type="text" id="fNo" value="' + esc(f ? f.no : "") + '" autocomplete="off"></div>' +
-      '<div class="field"><label for="fSeat">Seat</label><input type="text" id="fSeat" value="' + esc(f ? f.seat : "") + '" autocomplete="off"></div></div>' +
       '<div class="field"><label for="fDep" id="fDepL">Departs (local time)</label><input type="datetime-local" id="fDep" value="' + esc(f ? f.dep : "") + '"></div>' +
-      '<div class="field"><label for="fArr" id="fArrL">Lands (local time, optional)</label><input type="datetime-local" id="fArr" value="' + esc(f ? f.arr : "") + '"><small class="fine" id="fArrHint"></small></div>' +
-      '<div class="grid2"><div class="field"><label for="fGate">Gate</label><input type="text" id="fGate" value="' + esc(f ? f.gate : "") + '" autocomplete="off"></div><div></div></div>' +
+      '<div class="field"><label for="fArr" id="fArrL">Lands (local time)</label><input type="datetime-local" id="fArr" value="' + esc(f ? f.arr : "") + '"><small class="fine" id="fArrHint"></small></div>' +
+      '<div class="grid2"><div class="field"><label for="fSeat">Seat</label><input type="text" id="fSeat" value="' + esc(f ? f.seat : "") + '" autocomplete="off" autocapitalize="characters"></div>' +
+      '<div class="field"><label for="fGate">Gate</label><input type="text" id="fGate" value="' + esc(f ? f.gate : "") + '" autocomplete="off" autocapitalize="characters"></div></div>' +
       '<p class="fine" id="fErr" style="color:var(--red)"></p>' +
       '<div class="actions">' + (f ? '<button type="button" class="btn danger" id="fDelete">Delete</button>' : "") + '<span style="flex:1"></span><button type="button" class="btn ghost" id="cancelSheet">Cancel</button><button type="submit" class="btn primary">' + (f ? "Save" : "Add flight") + "</button></div></form>";
     scrim.classList.add("on");
     const upd = () => {
       const a = ap($("fFrom").dataset.code), b = ap($("fTo").dataset.code);
       $("fDepL").textContent = "Departs (" + (a.unknown ? "local time" : a.city + " time") + ")";
-      $("fArrL").textContent = "Lands (" + (b.unknown ? "local time" : b.city + " time") + ", optional)";
+      $("fArrL").textContent = "Lands (" + (b.unknown ? "local time" : b.city + " time") + ")";
       $("fArrHint").textContent = !a.unknown && !b.unknown ? "Leave it empty and I'll estimate about " + durWords(Math.round(dist(a, b) / 780 * 60 + 30)) + " of flying." : "";
     };
     ["fFrom", "fTo"].forEach(fid => {
@@ -1339,6 +1349,55 @@
     });
     airportsReady.then(upd);
     upd();
+    // ---- type a flight number, the route fills itself in ----
+    const touched = { fFrom: !!f, fTo: !!f, fArr: !!(f && f.arr) };
+    ["fFrom", "fTo"].forEach(fid => { $(fid).addEventListener("input", () => touched[fid] = true); $(fid).parentElement.querySelector(".ap-sug").addEventListener("click", () => touched[fid] = true); });
+    const setAirport = (fid, code) => { const inp = $(fid); inp.dataset.code = code; inp.value = apLabel(code); inp.classList.remove("filled"); void inp.offsetWidth; inp.classList.add("filled"); };
+    let lookT = null, lookSeq = 0;
+    const look = $("fLook");
+    const lookup = async () => {
+      const raw = $("fNo").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const m = /^([A-Z0-9]{2})(\d{1,4}[A-Z]?)$/.exec(raw);
+      if (!m) { look.className = "look"; look.textContent = raw ? "Like SQ 516 or 6E 721" : "Type it and I'll fill in the rest"; return; }
+      const al = airlineOf(m[1] + " " + m[2]);
+      const seq = ++lookSeq; look.className = "look busy"; look.textContent = "Looking up " + m[1] + " " + m[2] + "…";
+      let route = routeCache[raw];
+      if (!route) {
+        try {
+          const r = await fetch("https://api.adsbdb.com/v0/callsign/" + raw, { cache: "no-store" });
+          const j = r.ok ? await r.json() : null, fr = j && j.response && j.response.flightroute;
+          if (fr && fr.origin && fr.destination && fr.origin.iata_code && fr.destination.iata_code) {
+            route = { from: fr.origin.iata_code, to: fr.destination.iata_code, airline: fr.airline && fr.airline.name || al || "" };
+            routeCache[raw] = route; try { localStorage.setItem("flightdeck.routes", JSON.stringify(routeCache)); } catch (e) {}
+          } else if (r.status === 404 || fr === undefined) route = null;
+        } catch (e) { if (seq === lookSeq) { look.className = "look"; look.textContent = (al ? al + " · " : "") + "couldn't look it up (offline?). Pick the airports below."; } return; }
+      }
+      if (seq !== lookSeq) return;
+      await airportsReady;
+      if (!route || !AIR || !AIR.get(route.from) || !AIR.get(route.to)) { look.className = "look"; look.textContent = (al ? al + " · " : "") + "couldn't find that route. Pick the airports below."; return; }
+      if (!touched.fFrom || $("fFrom").dataset.code === route.from) setAirport("fFrom", route.from);
+      if (!touched.fTo || $("fTo").dataset.code === route.to) setAirport("fTo", route.to);
+      const clash = $("fFrom").dataset.code !== route.from || $("fTo").dataset.code !== route.to;
+      look.className = "look ok";
+      look.innerHTML = "<b>" + esc(route.airline || al || "") + "</b> · " + esc(ap(route.from).city) + " → " + esc(ap(route.to).city) + " · about " + durWords(Math.round(dist(ap(route.from), ap(route.to)) / 780 * 60 + 30)) +
+        (clash ? ' <button type="button" class="linkbtn" id="fUseRoute">Use this route</button>' : "") + "<br><span>Check it matches your booking.</span>";
+      const u = $("fUseRoute"); if (u) u.onclick = () => { setAirport("fFrom", route.from); setAirport("fTo", route.to); touched.fFrom = touched.fTo = false; lookup(); };
+      upd(); fillArr();
+    };
+    $("fNo").addEventListener("input", () => { clearTimeout(lookT); lookT = setTimeout(lookup, 450); });
+    // landing time: filled in from the departure and the distance, unless you typed your own
+    $("fArr").addEventListener("input", () => { touched.fArr = !!$("fArr").value; $("fArr").classList.remove("est"); });
+    const fillArr = () => {
+      if (touched.fArr) return;
+      const a = ap($("fFrom").dataset.code), b = ap($("fTo").dataset.code), dep = $("fDep").value;
+      if (a.unknown || b.unknown || !dep) return;
+      const d = localToUTC(dep, a.tz); if (d == null) return;
+      const mins = Math.round((dist(a, b) / 780 * 60 + 30) / 5) * 5;
+      $("fArr").value = utcToLocalInput(d + mins * 60000, b.tz); $("fArr").classList.add("est");
+      $("fArrHint").textContent = "Estimated: about " + durWords(mins) + " of flying. Change it if your ticket says different.";
+    };
+    $("fDep").addEventListener("change", fillArr); $("fDep").addEventListener("input", fillArr);
+    if ($("fNo").value) lookup();
     $("cancelSheet").onclick = closeSheet;
     if (f) $("fDelete").onclick = e => {
       const b = e.currentTarget;
@@ -1629,8 +1688,8 @@
       const r = tgt.el.getBoundingClientRect();
       const rec = { t: d.t, x: +(((x - r.left) / r.width) * 100).toFixed(1), y: +(((y - r.top) / r.height) * 100).toFixed(1), r: parseFloat(d.fl.style.getPropertyValue("--r")) || 0, s: d.existing ? d.existing.s.s : 1 };
       if (d.existing) d.existing.list.splice(d.existing.k, 1);
-      if (tgt.kind === "pass") { const f = state.flights.find(z => z.id === tgt.id); (f.stickers = f.stickers || []).push(rec); if (f.stickers.length > 20) f.stickers.shift(); }
-      else { rec.pg = tgt.id; state.ppStickers.push(rec); if (state.ppStickers.length > 200) state.ppStickers.shift(); }
+      if (tgt.kind === "pass") { const f = state.flights.find(z => z.id === tgt.id); (f.stickers = f.stickers || []).push(rec);  }
+      else { rec.pg = tgt.id; state.ppStickers.push(rec);  }
       d.fl.remove(); slapSound();
       commit({ quiet: true }); rerenderStickers();
       const scope = tgt.kind === "pass" ? '#passes .ticket[data-id="' + tgt.id + '"] .stk' : "#ppBook .stk";
@@ -1815,7 +1874,7 @@
         (state.moments.length ? "<small>JOURNAL</small><p><b>" + state.moments.length + " moment" + (state.moments.length === 1 ? "" : "s") + "</b><span>" + Object.keys(MOMENT_KINDS).map(k => [k, state.moments.filter(m => m.kind === k).length]).filter(x => x[1]).map(([k, n]) => n + " " + MOMENT_KINDS[k].word.toLowerCase()).join(" · ") + "</span></p>" : "") + "</div>" +
         '<p class="rec-year">' + yr + ": " + ys.flights + " flight" + (ys.flights === 1 ? "" : "s") + " · " + fmtInt(ys.km) + " km · " + ys.countries.size + " countr" + (ys.countries.size === 1 ? "y" : "ies") + "</p>"
         : '<div class="rec-empty"><b>Your record starts with your first landing.</b><p>Every flight you take adds to it: distance, hours in the air, countries, airports and airlines.</p>' + (st.upcoming ? "<p>" + st.upcoming + " flight" + (st.upcoming === 1 ? "" : "s") + " coming up.</p>" : "") + "</div>";
-      return ppSheet("record", "record", '<div class="pp-head">TRAVEL RECORD<span>ALL TIME</span></div>' + body + '<button class="rec-share" id="ppShare">Share my passport</button>', idx);
+      return ppSheet("record", "record", '<div class="pp-head">TRAVEL RECORD<span>ALL TIME</span></div>' + body, idx);
     }
     if (pg.k === "map") return ppSheet("", "map", '<div class="pp-head">ROUTES FLOWN<span>' + state.flights.length + " FLIGHT" + (state.flights.length === 1 ? "" : "S") + "</span></div>" + worldMapSVG(300, 250) +
       '<p class="fine">Solid lines are flights you\'ve taken, dashed ones are coming up. Countries you\'ve been stamped in are shaded.</p>', idx);
@@ -1854,60 +1913,7 @@
     if (fresh) { setTimeout(stampSound, 330); pages[ppPage].stamps && pages[ppPage].stamps.forEach(s => freshStamps.delete(s.id)); }
     const nm = $("ppName");
     if (nm) nm.addEventListener("change", () => { state.name = nm.value.trim().slice(0, 40); commit({ quiet: true }); renderPassport(); });
-    const sh = $("ppShare"); if (sh) sh.addEventListener("click", sharePassport);
   }
-  // ---------- share card (an image of your passport stats, like Flighty's) ----------
-  async function sharePassport() {
-    const st = travelStats(), W = 1080, H = 1350;
-    try { await document.fonts.ready; } catch (e) {}
-    const c = document.createElement("canvas"); c.width = W; c.height = H;
-    const g = c.getContext("2d");
-    const bg = g.createRadialGradient(W * 0.3, H * 0.15, 50, W * 0.5, H * 0.5, H * 0.9); bg.addColorStop(0, "#2e3f6b"); bg.addColorStop(1, "#141d38");
-    g.fillStyle = bg; g.fillRect(0, 0, W, H);
-    const gold = g.createLinearGradient(0, 0, W, H); gold.addColorStop(0, "#f6e3a1"); gold.addColorStop(0.45, "#c79a3e"); gold.addColorStop(0.6, "#f1d98c"); gold.addColorStop(1, "#9c7428");
-    g.strokeStyle = gold; g.lineWidth = 3; g.strokeRect(40, 40, W - 80, H - 80);
-    g.fillStyle = gold; g.textAlign = "center";
-    g.font = "600 34px 'Barlow Condensed', sans-serif"; g.fillText("F L I G H T   D E C K", W / 2, 130);
-    g.font = "700 120px 'Barlow Condensed', sans-serif"; g.fillText("PASSPORT", W / 2, 250);
-    g.font = "600 38px 'Barlow Condensed', sans-serif"; g.fillText((state.name || "TRAVELLER").toUpperCase(), W / 2, 310);
-    // map
-    if (WORLD && window.d3) {
-      const rp = routesProjection(90, 360, W - 90, 800), p = rp.p, path = d3.geoPath(p, g);
-      g.save(); g.beginPath(); g.rect(80, 350, W - 160, 460); g.clip();
-      if (rp.world) { g.beginPath(); path({ type: "Sphere" }); } else { g.beginPath(); g.rect(80, 350, W - 160, 460); }
-      g.fillStyle = "rgba(255,255,255,0.05)"; g.fill();
-      const visited = new Set(state.stamps.map(s => ap(s.code).country));
-      WORLD.feats.forEach(ct => { g.beginPath(); path(ct.f); g.fillStyle = visited.has(ct.n) ? "#d9b867" : "rgba(214,226,255,0.16)"; g.fill(); });
-      g.strokeStyle = "#f6e3a1"; g.lineWidth = 3.5; g.lineCap = "round";
-      state.flights.forEach(f => { const A = ap(f.from), B = ap(f.to); g.beginPath(); path({ type: "LineString", coordinates: [[A.lon, A.lat], [B.lon, B.lat]] }); g.stroke(); });
-      g.fillStyle = "#fff";
-      g.font = "600 26px 'DM Mono', monospace"; g.textAlign = "left";
-      [...new Set(state.flights.flatMap(f => [f.from, f.to]))].forEach(code => { const a = ap(code), q = p([a.lon, a.lat]); if (q) { g.fillStyle = "#fff"; g.beginPath(); g.arc(q[0], q[1], 7, 0, Math.PI * 2); g.fill(); if (!rp.world) { g.fillStyle = "rgba(255,255,255,.85)"; g.fillText(code, q[0] + 12, q[1] - 8); } } });
-      g.restore(); g.textAlign = "center";
-    }
-    // numbers
-    const nums = [[st.flights || state.flights.length, st.flights ? "FLIGHTS" : "FLIGHTS BOOKED"], [fmtInt(st.km || state.flights.reduce((s, f) => s + legLen(f), 0)), st.flights ? "KILOMETRES" : "KM PLANNED"], [st.countries.size, "COUNTRIES"]];
-    nums.forEach(([v, l], k) => {
-      const x = W / 2 + (k - 1) * 320;
-      g.fillStyle = "#fff"; g.font = "700 104px 'Barlow Condensed', sans-serif"; g.fillText(String(v), x, 960);
-      g.fillStyle = gold; g.font = "600 30px 'Barlow Condensed', sans-serif"; g.fillText(l, x, 1005);
-    });
-    g.fillStyle = "rgba(255,255,255,0.75)"; g.font = "500 34px 'Barlow', sans-serif";
-    const around = (st.km || 0) / 40075;
-    g.fillText(st.flights ? "That's " + (around >= 0.1 ? around.toFixed(around < 1 ? 2 : 1) + "× around the Earth" : "just getting started") + "." : "The trip is about to begin.", W / 2, 1110);
-    const top = [...st.countries.keys()].slice(0, 6).map(cc => countryName(cc)).join("  ·  ");
-    g.font = "600 30px 'Barlow Condensed', sans-serif"; g.fillStyle = gold; g.fillText(top.toUpperCase(), W / 2, 1180);
-    g.fillStyle = "rgba(255,255,255,0.4)"; g.font = "500 24px 'DM Mono', monospace"; g.fillText("anishagarwal29.github.io/flight-deck", W / 2, 1265);
-    c.toBlob(async blob => {
-      if (!blob) return;
-      const file = new File([blob], "flight-deck-passport.png", { type: "image/png" });
-      try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: "My Flight Deck passport" }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
-      const url = URL.createObjectURL(blob);
-      sheetEl.innerHTML = '<h2>Your passport card</h2><img src="' + url + '" alt="Flight Deck passport card" style="width:100%;border-radius:10px"><p class="note">Press and hold the image to save or share it.</p><div class="actions"><button class="btn primary" id="cancelSheet">Done</button></div>';
-      scrim.classList.add("on"); $("cancelSheet").onclick = closeSheet;
-    }, "image/png");
-  }
-
   // page turns: the page is two-sided, and the page underneath is always there
   let flipAnim = null;
   function makeLeaf(html) {
@@ -1981,7 +1987,8 @@
   // photos live in IndexedDB on the phone (too big for normal storage)
   const photoURL = new Map();
   const photoDB = new Promise(res => { try { const r = indexedDB.open("flightdeck-photos", 1); r.onupgradeneeded = () => r.result.createObjectStore("p"); r.onsuccess = () => res(r.result); r.onerror = () => res(null); } catch (e) { res(null); } });
-  photoDB.then(db => { if (!db) return; const q = db.transaction("p").objectStore("p").openCursor(); q.onsuccess = () => { const c = q.result; if (c) { photoURL.set(c.key, c.value); c.continue(); } else if (curTab === "passport") renderPassport(); }; });
+  photoDB.then(db => { if (db && wipeNow) try { db.transaction("p", "readwrite").objectStore("p").clear(); } catch (e) {} });
+  photoDB.then(db => { if (!db || wipeNow) return; const q = db.transaction("p").objectStore("p").openCursor(); q.onsuccess = () => { const c = q.result; if (c) { photoURL.set(c.key, c.value); c.continue(); } else if (curTab === "passport") renderPassport(); }; });
   const photoPut = (id, data) => { photoURL.set(id, data); photoDB.then(db => { if (db) db.transaction("p", "readwrite").objectStore("p").put(data, id); }); };
   const photoDel = id => { photoURL.delete(id); photoDB.then(db => { if (db) db.transaction("p", "readwrite").objectStore("p").delete(id); }); };
   async function readPhoto(file) {
@@ -2118,59 +2125,48 @@
 
   // ---------- the log sheet: write it, the paper picks itself ----------
   let draftPhoto = null;
+  // what you wrote decides the paper; anything it can't place becomes a handwritten sticky note
+  const autoKind = text => detectMoment(text) || { kind: "felt", icon: "note" };
   function openMomentEditor(id, at) {
     const m = id ? state.moments.find(x => x.id === id) : null;
-    let kind = m ? m.kind : "ate", icon = m ? m.icon : "utensils", hearts = m ? m.hearts : 0, manual = !!m;
+    let hearts = m ? m.hearts : 0;
     draftPhoto = m && m.photo ? photoURL.get(m.id) || null : null;
-    sheet.innerHTML = '<form id="moForm" class="mo-form" autocomplete="off"><h2>' + (m ? "Edit moment" : "What happened?") + "</h2>" +
-      '<input type="text" id="moWhat" class="mo-what" maxlength="80" value="' + esc(m ? m.what : "") + '" aria-label="What happened" enterkeyhint="done">' +
+    sheet.innerHTML = '<form id="moForm" class="mo-form" autocomplete="off"><h2>' + (m ? "Edit" : "What happened?") + "</h2>" +
+      '<textarea id="moWhat" class="mo-what" rows="2" maxlength="120" aria-label="What happened" enterkeyhint="done">' + esc(m ? m.what : "") + "</textarea>" +
       '<div class="mo-preview"><div class="mo-prev-item" id="moPrev"></div></div>' +
-      '<div class="mo-kinds" id="moKinds">' + Object.keys(MOMENT_KINDS).map(k => '<button type="button" data-kind="' + k + '" style="--k:' + MOMENT_KINDS[k].ink + '">' + iconSVG(MOMENT_KINDS[k].icon) + "<span>" + MOMENT_KINDS[k].label + "</span></button>").join("") + "</div>" +
-      '<div class="field"><label for="moNote">Anything else <span class="fine">(optional)</span></label><textarea id="moNote" rows="2" maxlength="400">' + esc(m ? m.note : "") + "</textarea></div>" +
       '<div class="mo-row"><label class="mo-photo" id="moPhotoBtn"><input type="file" accept="image/*" id="moPhoto" hidden><span id="moPhotoPrev"></span></label>' +
-      '<div class="mo-side"><div class="field"><label>How good?</label><div class="mo-hearts" id="moHearts">' + [1, 2, 3].map(n => '<button type="button" data-h="' + n + '" aria-label="' + n + ' hearts"><svg viewBox="0 0 24 24">' + HEART + "</svg></button>").join("") + "</div></div>" +
-      '<div class="field"><label for="moWhere">Where</label><input type="text" id="moWhere" maxlength="40" value="' + esc(m ? m.where : placeNow()) + '"></div></div></div>' +
+      '<div class="mo-side"><div class="field"><label>How good?</label><div class="mo-hearts" id="moHearts">' + [1, 2, 3].map(n => '<button type="button" data-h="' + n + '" aria-label="' + n + ' hearts"><svg viewBox="0 0 24 24">' + HEART + "</svg></button>").join("") + "</div></div></div></div>" +
       '<p class="fine" id="moErr" style="color:var(--red)"></p>' +
       '<div class="actions"><button type="button" class="btn ghost" id="cancelSheet">Cancel</button><button type="submit" class="btn red">' + (m ? "Save" : "Stick it in") + "</button></div></form>";
     scrim.classList.add("on");
-    const draft = () => ({ id: m ? m.id : "draft", kind, icon, what: $("moWhat").value.trim() || MOMENT_KINDS[kind].label + "…", note: $("moNote").value.trim(), where: $("moWhere").value.trim(), hearts, at: m ? m.at : Date.now(), photo: false });
-    let lastShape = "";
+    const where = m ? m.where : placeNow();
+    let lastKind = "";
     const preview = () => {
-      const d = draft(), el = $("moPrev");
-      el.style.width = Math.round(MOMENT_KINDS[kind].w * 3.6) + "px";
+      const txt = $("moWhat").value.trim(), g = autoKind(txt), el = $("moPrev");
+      const d = { id: m ? m.id : "draft", kind: g.kind, icon: g.icon, what: txt || "…", note: "", where, hearts, at: m ? m.at : Date.now(), photo: false };
+      el.style.width = Math.round(MOMENT_KINDS[g.kind].w * 3.6) + "px";
       el.innerHTML = momentArt(d, "p");
-      if (lastShape !== kind) { lastShape = kind; el.classList.remove("swap"); void el.offsetWidth; el.classList.add("swap"); }
-      sheet.querySelectorAll("[data-kind]").forEach(b => b.classList.toggle("on", b.dataset.kind === kind));
+      if (lastKind !== g.kind) { if (lastKind) { el.classList.remove("swap"); void el.offsetWidth; el.classList.add("swap"); snapSound(); } lastKind = g.kind; }
     };
     const setHearts = n => { hearts = n; sheet.querySelectorAll("[data-h]").forEach(b => b.classList.toggle("on", +b.dataset.h <= n)); preview(); };
     const showPhoto = () => { $("moPhotoPrev").innerHTML = draftPhoto ? '<img src="' + draftPhoto + '" alt=""><b class="mo-x" id="moPhotoX">×</b>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg><small>Add a photo</small>'; $("moPhotoBtn").classList.toggle("on", !!draftPhoto); };
-    $("moWhat").addEventListener("input", () => {
-      if (!manual) { const g = detectMoment($("moWhat").value + " " + $("moNote").value); if (g) { kind = g.kind; icon = g.icon; } }
-      preview();
-    });
-    $("moNote").addEventListener("input", () => { if (!manual) { const g = detectMoment($("moWhat").value + " " + $("moNote").value); if (g) { kind = g.kind; icon = g.icon; } } preview(); });
-    $("moWhere").addEventListener("input", preview);
-    sheet.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => {
-      manual = true; kind = b.dataset.kind;
-      const g = detectMoment($("moWhat").value); icon = g && g.kind === kind ? g.icon : MOMENT_KINDS[kind].icon;
-      snapSound(); preview();
-    });
+    $("moWhat").addEventListener("input", preview);
+    $("moWhat").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("moWhat").blur(); } });
     sheet.querySelectorAll("[data-h]").forEach(b => b.onclick = () => { setHearts(hearts === +b.dataset.h ? 0 : +b.dataset.h); if (navigator.vibrate) navigator.vibrate(8); });
     $("moPhotoBtn").addEventListener("click", e => { if (e.target.id === "moPhotoX") { e.preventDefault(); draftPhoto = null; showPhoto(); } });
     $("moPhoto").onchange = async e => { const f = e.target.files && e.target.files[0]; if (!f) return; $("moPhotoPrev").innerHTML = "<small>Developing…</small>"; try { draftPhoto = await readPhoto(f); } catch (err) { $("moErr").textContent = "Couldn't read that photo. Try another one."; } showPhoto(); };
     $("cancelSheet").onclick = closeSheet;
-    $("moWhat").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("moWhat").blur(); } });
-    setHearts(hearts); showPhoto(); preview();
+    setHearts(hearts); showPhoto();
     $("moForm").onsubmit = e => {
       e.preventDefault();
-      const what = $("moWhat").value.trim();
+      const what = $("moWhat").value.trim().replace(/\s+/g, " ");
       if (!what) { $("moErr").textContent = "Write what happened, even just a word."; $("moWhat").focus(); return; }
-      const fields = { kind, icon, what, note: $("moNote").value.trim(), where: $("moWhere").value.trim(), hearts, photo: !!draftPhoto };
+      const g = autoKind(what);
+      const fields = { kind: g.kind, icon: g.icon, what, note: "", where, hearts, photo: !!draftPhoto };
       if (m) {
         Object.assign(m, fields); if (draftPhoto) photoPut(m.id, draftPhoto); else photoDel(m.id);
         commit({ quiet: true }); closeSheet(); renderPassport(); toast("Saved"); return;
       }
-      // tapped a spot on a past day's page: it belongs to that day
       let when = Date.now();
       if (at && at.day && at.day !== new Date().toDateString()) { const d = new Date(at.day); d.setHours(12, 0, 0, 0); when = d.getTime(); }
       const nm = Object.assign({ id: uid(), at: when, x: at ? at.x : null, y: at ? at.y : null, r: +(Math.random() * 14 - 7).toFixed(1) }, fields);
